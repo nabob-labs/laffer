@@ -1,0 +1,16 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-hyperlane-mailbox"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+anyhow                = { workspace = true }
+velox-hyperlane-types = { workspace = true }
+velox-primitives      = { workspace = true }
+velox-storage         = { workspace = true }

@@ -1,0 +1,32 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-archive-testing"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+anyhow                     = { workspace = true }
+velox-archive-app          = { workspace = true }
+velox-archive-block-source = { workspace = true }
+velox-archive-httpd        = { workspace = true }
+velox-archive-projection   = { workspace = true }
+velox-genesis              = { workspace = true }
+velox-primitives           = { workspace = true }
+velox-sdk                  = { workspace = true }
+velox-testing              = { workspace = true }
+velox-types                = { workspace = true }
+reqwest                    = { workspace = true }
+sea-orm                    = { workspace = true }
+serde_json                 = { workspace = true }
+tempfile                   = { workspace = true }
+tokio                      = { workspace = true }
+uuid                       = { workspace = true }
+
+[dev-dependencies]
+# The `live_subscriber` test drives the `/ws` stream directly with `.next()`.
+futures = { workspace = true }

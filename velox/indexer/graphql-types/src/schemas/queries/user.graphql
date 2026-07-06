@@ -1,0 +1,22 @@
+query User($userIndex: Int!) {
+  user(userIndex: $userIndex) {
+    userIndex
+    createdBlockHeight
+    createdAt
+    publicKeys {
+      userIndex
+      keyHash
+      publicKey
+      keyType
+      createdBlockHeight
+      createdAt
+    }
+    accounts {
+      accountIndex
+      address
+      createdBlockHeight
+      createdTxHash
+      createdAt
+    }
+  }
+}

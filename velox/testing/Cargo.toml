@@ -1,0 +1,103 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-testing"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+actix-codec                 = { workspace = true }
+actix-http                  = { workspace = true }
+actix-service               = { workspace = true }
+actix-test                  = { workspace = true }
+actix-web                   = { workspace = true }
+anyhow                      = { workspace = true }
+async-trait                 = { workspace = true }
+awc                         = { workspace = true }
+byteorder                   = { workspace = true }
+clickhouse                  = { workspace = true, features = ["test-util"] }
+velox-app                   = { workspace = true, features = ["abci", "testing", "tracing"] }
+velox-backtrace             = { workspace = true }
+velox-crypto                = { workspace = true }
+velox-db-disk               = { workspace = true }
+velox-db-memory             = { workspace = true }
+velox-eth-utils             = { workspace = true }
+velox-genesis               = { workspace = true }
+velox-hyperlane-types       = { workspace = true }
+velox-identity              = { workspace = true }
+velox-indexer-cache         = { workspace = true, features = ["http-request-details", "metrics", "tracing"] }
+velox-indexer-clickhouse    = { workspace = true, features = ["metrics", "testing", "tracing"] }
+velox-indexer-graphql-types = { workspace = true }
+velox-indexer-hooked        = { workspace = true, features = ["tracing"] }
+velox-indexer-httpd         = { workspace = true, features = ["metrics", "tracing"] }
+velox-indexer-metrics       = { workspace = true }
+velox-indexer-sql           = { workspace = true, features = ["async-graphql", "http-request-details", "testing", "tracing"] }
+velox-math                  = { workspace = true }
+velox-order-book            = { workspace = true }
+velox-primitives            = { workspace = true, features = ["async-graphql"] }
+velox-proposal-preparer     = { workspace = true }
+velox-pyth-client           = { workspace = true }
+velox-pyth-types            = { workspace = true }
+velox-temp-rocksdb          = { workspace = true }
+velox-types                 = { workspace = true, features = ["async-graphql"] }
+velox-vm-rust               = { workspace = true }
+futures                     = { workspace = true }
+futures-util                = { workspace = true }
+graphql_client              = { workspace = true }
+hex-literal                 = { workspace = true }
+k256                        = { workspace = true }
+pyth-lazer-protocol         = { workspace = true }
+rand                        = { workspace = true }
+sea-orm                     = { workspace = true }
+serde                       = { workspace = true }
+serde_json                  = { workspace = true }
+sha2                        = { workspace = true }
+tokio                       = { workspace = true }
+tracing                     = { workspace = true }
+tracing-subscriber          = { workspace = true }
+
+[dev-dependencies]
+anyhow                      = { workspace = true }
+assert-json-diff            = { workspace = true }
+assertor                    = { workspace = true }
+bip32                       = { workspace = true }
+borsh                       = { workspace = true, features = ["de_strict_order", "derive"] }
+chrono                      = { workspace = true }
+criterion                   = { workspace = true }
+velox-account-factory       = { workspace = true }
+velox-auth                  = { workspace = true }
+velox-backtrace             = { workspace = true }
+velox-bank                  = { workspace = true }
+velox-eth-utils             = { workspace = true }
+velox-gateway               = { workspace = true }
+velox-sdk                   = { workspace = true }
+velox-storage               = { workspace = true }
+velox-tester                = { workspace = true, features = ["library"] }
+velox-vm-hybrid             = { workspace = true }
+velox-vm-wasm               = { workspace = true }
+ed25519-dalek               = { workspace = true, features = ["batch", "digest"] }
+graphql_client              = { workspace = true }
+hex                         = { workspace = true }
+itertools                   = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+p256                        = { workspace = true }
+proptest                    = { workspace = true }
+prost                       = { workspace = true }
+rand                        = { workspace = true }
+reqwest                     = { workspace = true, features = ["json"] }
+serde                       = { workspace = true }
+test-case                   = { workspace = true }
+thiserror                   = { workspace = true }
+tokio                       = { workspace = true, features = ["full"] }
+
+[[bin]]
+name = "mock-httpd"
+path = "src/bin/mock_httpd.rs"
+
+[[bench]]
+harness = false
+name    = "benchmarks"

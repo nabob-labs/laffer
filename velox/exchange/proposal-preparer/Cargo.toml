@@ -1,0 +1,31 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-proposal-preparer"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+metrics = ["velox-pyth-client/metrics", "dep:metrics"]
+
+[dependencies]
+velox-app         = { workspace = true }
+velox-math        = { workspace = true }
+velox-order-book  = { workspace = true }
+velox-primitives  = { workspace = true }
+velox-pyth-client = { workspace = true }
+velox-pyth-types  = { workspace = true }
+velox-types       = { workspace = true }
+metrics           = { workspace = true, optional = true }
+prost             = { workspace = true }
+reqwest           = { workspace = true }
+tokio             = { workspace = true }
+tokio-stream      = { workspace = true }
+tracing           = { workspace = true }
+
+[dev-dependencies]
+test-case = { workspace = true }

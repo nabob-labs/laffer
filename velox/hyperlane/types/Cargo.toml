@@ -1,0 +1,22 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-hyperlane-types"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+anyhow           = { workspace = true }
+velox-primitives = { workspace = true }
+velox-storage    = { workspace = true }
+hex-literal      = { workspace = true }
+sha3             = { workspace = true }
+
+[dev-dependencies]
+hex        = { workspace = true }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

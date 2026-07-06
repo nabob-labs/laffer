@@ -1,0 +1,48 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-cli"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = "0.27.0"
+
+[dependencies]
+anyhow                      = { workspace = true }
+clap                        = { workspace = true, features = ["derive", "wrap_help"] }
+colored                     = { workspace = true }
+velox-app                   = { workspace = true, features = ["abci", "metrics", "tracing"] }
+velox-config-parser         = { workspace = true }
+velox-db-disk               = { workspace = true, features = ["metrics", "tracing"] }
+velox-genesis               = { workspace = true, features = ["metrics"] }
+velox-indexer-cache         = { workspace = true, features = ["http-request-details", "metrics", "s3", "tracing"] }
+velox-indexer-clickhouse    = { workspace = true, features = ["metrics", "tracing"] }
+velox-indexer-hooked        = { workspace = true, features = ["tracing"] }
+velox-indexer-httpd         = { workspace = true, features = ["metrics", "tracing"] }
+velox-indexer-metrics       = { workspace = true, features = ["tracing"] }
+velox-indexer-sql           = { workspace = true, features = ["async-graphql", "metrics", "tracing"] }
+velox-primitives            = { workspace = true }
+velox-proposal-preparer     = { workspace = true, features = ["metrics"] }
+velox-upgrade               = { workspace = true }
+velox-vm-rust               = { workspace = true }
+dialoguer                   = { workspace = true }
+home                        = { workspace = true }
+libc                        = { workspace = true }
+metrics                     = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+opentelemetry               = { workspace = true }
+opentelemetry-otlp          = { workspace = true }
+opentelemetry_sdk           = { workspace = true }
+sentry                      = { workspace = true }
+serde                       = { workspace = true }
+tokio                       = { workspace = true }
+tower-abci                  = { workspace = true }
+tracing                     = { workspace = true }
+tracing-opentelemetry       = { workspace = true }
+tracing-subscriber          = { workspace = true }
+
+[[bin]]
+name = "velox"
+path = "src/main.rs"

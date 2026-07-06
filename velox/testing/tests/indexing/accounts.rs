@@ -1,0 +1,131 @@
+use {
+    assertor::*,
+    itertools::Itertools,
+    sea_orm::EntityTrait,
+    velox_app::Indexer,
+    velox_indexer_sql::entity,
+    velox_testing::{
+        HyperlaneTestSuite, TestOption, add_account_with_existing_user, create_user_and_account,
+        setup_test_with_indexer,
+    },
+};
+
+#[tokio::test(flavor = "multi_thread")]
+async fn index_account_creations() -> anyhow::Result<()> {
+    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
+    let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
+
+    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+
+    suite.app.indexer.wait_for_finish().await?;
+
+    let users = velox_indexer_sql::entity::users::Entity::find()
+        .all(&velox_context.db)
+        .await?;
+
+    let accounts = velox_indexer_sql::entity::accounts::Entity::find()
+        .all(&velox_context.db)
+        .await?;
+
+    let account_users = velox_indexer_sql::entity::accounts_users::Entity::find()
+        .all(&velox_context.db)
+        .await?;
+
+    let public_keys = velox_indexer_sql::entity::public_keys::Entity::find()
+        .all(&velox_context.db)
+        .await?;
+
+    assert_that!(users.iter().map(|t| t.user_index).collect::<Vec<_>>())
+        .is_equal_to(vec![user.user_index() as i32]);
+
+    assert_that!(users).has_length(1);
+    assert_that!(accounts).has_length(1);
+    assert_that!(account_users).has_length(1);
+    assert_that!(public_keys).has_length(1);
+
+    let public_key = public_keys.first().unwrap();
+
+    assert_that!(public_key.user_index).is_equal_to(user.user_index() as i32);
+    assert_that!(public_key.key_hash).is_equal_to(user.first_key_hash().to_string());
+    assert_that!(public_key.public_key).is_equal_to(user.first_key().to_string());
+
+    assert_that!(accounts[0].created_tx_hash.len()).is_at_least(60);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn index_previous_blocks() -> anyhow::Result<()> {
+    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
+    let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
+
+    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+
+    suite.app.indexer.wait_for_finish().await?;
+
+    let accounts: Vec<(entity::accounts::Model, Vec<entity::users::Model>)> =
+        velox_indexer_sql::entity::accounts::Entity::find()
+            .find_with_related(velox_indexer_sql::entity::users::Entity)
+            .all(&velox_context.db)
+            .await?;
+
+    assert_that!(accounts).has_length(1);
+
+    assert_that!(
+        accounts[0]
+            .1
+            .iter()
+            .map(|t| t.user_index)
+            .collect::<Vec<_>>()
+    )
+    .is_equal_to(vec![user.user_index() as i32]);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "Flaky test, needs investigation"]
+async fn index_single_user_multiple_single_signature_accounts() -> anyhow::Result<()> {
+    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
+    let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
+
+    let mut test_account1 =
+        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+
+    let test_account2 =
+        add_account_with_existing_user(&mut suite, &contracts, &mut test_account1).await;
+
+    suite.app.indexer.wait_for_finish().await?;
+
+    let accounts: Vec<(entity::accounts::Model, Vec<entity::users::Model>)> =
+        velox_indexer_sql::entity::accounts::Entity::find()
+            .find_with_related(velox_indexer_sql::entity::users::Entity)
+            .all(&velox_context.db)
+            .await?;
+
+    assert_that!(accounts).has_length(2);
+
+    let user_indexes = accounts
+        .iter()
+        .map(|(_, users)| users[0].user_index)
+        .unique()
+        .collect::<Vec<_>>();
+
+    let addresses = accounts
+        .iter()
+        .map(|(account, _)| &account.address)
+        .unique()
+        .collect::<Vec<_>>();
+
+    assert_that!(user_indexes).has_length(1);
+    assert_that!(user_indexes[0]).is_equal_to(test_account1.user_index() as i32);
+
+    assert_that!(addresses).has_length(2);
+    assert_that!(addresses).contains(&test_account1.address.into_inner().to_string());
+    assert_that!(addresses).contains(&test_account2.address.into_inner().to_string());
+
+    Ok(())
+}

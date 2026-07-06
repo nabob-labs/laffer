@@ -1,0 +1,421 @@
+use {
+    session_account::SessionAccount,
+    velox_primitives::{Addressable, Coin, Coins, Duration, ResultExt},
+    velox_testing::setup_test_naive,
+    velox_types::constants::usdc,
+};
+
+mod session_account {
+    use {
+        k256::ecdsa::SigningKey,
+        std::ops::{Deref, DerefMut},
+        velox_primitives::{
+            Addr, Addressable, ByteArray, Defined, JsonSerExt, Message, NonEmpty, SignData, Signer,
+            StdResult, Timestamp, Tx, Undefined, UnsignedTx,
+        },
+        velox_testing::{TestAccount, create_signature, generate_random_key},
+        velox_types::auth::{
+            Credential, Metadata, Nonce, SessionCredential, SessionInfo, SignDoc, Signature,
+            StandardCredential,
+        },
+    };
+
+    /// Contains both SessionInfo and the SessionInfo signed with the user keys.
+    #[derive(Clone)]
+    pub struct SessionInfoBuffer {
+        pub session_info: SessionInfo,
+        pub sign_info_signature: Signature,
+    }
+
+    pub struct SessionAccount<T> {
+        pub account: TestAccount,
+        session_sk: SigningKey,
+        session_pk: ByteArray<33>,
+        /// Per-session-key nonce, tracked independently of the account's
+        /// standard (master-key) nonce. Initialized from the account's next
+        /// nonce so the first session tx clears the migration floor.
+        pub session_nonce: Nonce,
+        /// Contains both SessionInfo and the SessionInfo signed with the user keys.
+        session_buffer: T,
+    }
+
+    impl SessionAccount<Undefined<SessionInfoBuffer>> {
+        pub fn new(account: TestAccount) -> Self {
+            let (session_sk, session_pk) = generate_random_key();
+
+            Self {
+                session_nonce: account.nonce,
+                account,
+                session_sk,
+                session_pk,
+                session_buffer: Undefined::default(),
+            }
+        }
+
+        /// Create a new account copying the session key from another account.
+        /// it's used to simulate 2 accounts under the same username sharing the same session key.
+        pub fn new_from_same_username(
+            other: &SessionAccount<Defined<SessionInfoBuffer>>,
+            account: TestAccount,
+        ) -> SessionAccount<Defined<SessionInfoBuffer>> {
+            SessionAccount::<Defined<SessionInfoBuffer>> {
+                session_nonce: account.nonce,
+                account,
+                session_sk: other.session_sk.clone(),
+                session_pk: other.session_pk,
+                session_buffer: other.session_buffer.clone(),
+            }
+        }
+    }
+
+    impl<T> SessionAccount<T> {
+        /// Generate a new session key.
+        pub fn refresh_session_key(
+            self,
+        ) -> anyhow::Result<SessionAccount<Undefined<SessionInfoBuffer>>> {
+            let (session_sk, session_pk) = generate_random_key();
+
+            Ok(SessionAccount {
+                // A fresh session key has an empty on-chain window, so
+                // re-initialize from the account's next nonce to clear the floor.
+                session_nonce: self.account.nonce,
+                account: self.account,
+                session_sk,
+                session_pk,
+                session_buffer: Undefined::default(),
+            })
+        }
+
+        // Sign the `SessionInfo` with the username key.
+        pub fn sign_session_key(
+            self,
+            chain_id: &str,
+            expire_at: Timestamp,
+        ) -> anyhow::Result<SessionAccount<Defined<SessionInfoBuffer>>> {
+            let session_info = SessionInfo {
+                chain_id: chain_id.to_string(),
+                session_key: self.session_pk,
+                expire_at,
+            };
+
+            let sign_data = session_info.to_sign_data()?;
+            let credential = self.account.create_standard_credential(sign_data.into());
+
+            let session_buffer = SessionInfoBuffer {
+                session_info,
+                sign_info_signature: credential.signature,
+            };
+
+            Ok(SessionAccount {
+                session_nonce: self.session_nonce,
+                account: self.account,
+                session_sk: self.session_sk,
+                session_pk: self.session_pk,
+                session_buffer: Defined::new(session_buffer),
+            })
+        }
+    }
+
+    impl<T> Deref for SessionAccount<T> {
+        type Target = TestAccount;
+
+        fn deref(&self) -> &Self::Target {
+            &self.account
+        }
+    }
+
+    impl<T> DerefMut for SessionAccount<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.account
+        }
+    }
+
+    impl<T> Addressable for SessionAccount<T> {
+        fn address(&self) -> Addr {
+            self.account.address()
+        }
+    }
+
+    impl Signer for SessionAccount<Defined<SessionInfoBuffer>> {
+        fn unsigned_transaction(
+            &self,
+            _msgs: NonEmpty<Vec<Message>>,
+            _chain_id: &str,
+        ) -> StdResult<UnsignedTx> {
+            unimplemented!("not used in this particular test");
+        }
+
+        fn sign_transaction(
+            &mut self,
+            msgs: NonEmpty<Vec<Message>>,
+            chain_id: &str,
+            gas_limit: u64,
+        ) -> StdResult<Tx> {
+            let data = Metadata {
+                user_index: self.user_index(),
+                chain_id: chain_id.to_string(),
+                nonce: self.session_nonce,
+                expiry: None,
+            };
+
+            let sign_doc = SignDoc {
+                gas_limit,
+                sender: self.address(),
+                messages: msgs.clone(),
+                data: data.clone(),
+            };
+
+            let sign_data = sign_doc.to_sign_data()?.into();
+            let session_signature = create_signature(&self.session_sk, sign_data);
+
+            let standard_credential = StandardCredential {
+                key_hash: self.sign_with(),
+                signature: self.session_buffer.inner().sign_info_signature.clone(),
+            };
+
+            let credential = Credential::Session(SessionCredential {
+                session_info: self.session_buffer.inner().session_info.clone(),
+                session_signature,
+                authorization: standard_credential,
+            });
+
+            self.session_nonce += 1;
+
+            Ok(Tx {
+                sender: self.address(),
+                gas_limit,
+                msgs,
+                data: data.to_json_value()?,
+                credential: credential.to_json_value()?,
+            })
+        }
+    }
+}
+
+#[tokio::test]
+async fn session_key() {
+    let (mut suite, accounts, _, contracts, _) = setup_test_naive(Default::default());
+
+    suite.block_time = Duration::from_seconds(10);
+
+    let mut owner = SessionAccount::new(accounts.owner)
+        .sign_session_key(
+            &suite.chain_id,
+            suite.block.timestamp + Duration::from_seconds(100),
+        )
+        .unwrap();
+
+    // Ok transfer
+    {
+        suite
+            .transfer(
+                &mut owner,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+    }
+
+    // Expire the timestamp
+    {
+        suite.block_time = Duration::from_seconds(91);
+        suite
+            .transfer(
+                &mut owner,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_fail_with_error("session expired at Duration(Dec(Int(31536100000000000))");
+        owner.session_nonce -= 1;
+
+        suite.block_time = Duration::from_seconds(10);
+    }
+
+    // Sign the session key again refreshing the timestamp
+    {
+        owner = owner
+            .sign_session_key(
+                &suite.chain_id,
+                suite.block.timestamp + Duration::from_seconds(100),
+            )
+            .unwrap();
+
+        suite
+            .transfer(
+                &mut owner,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+    }
+
+    // Try use the same session key signature with a different account.
+    // We need to create a new account under the same username.
+    // Then create a new SessionAccount with new_from_same_username,
+    // which will use the same session key signature generated with owner1.
+    {
+        let owner2 = owner
+            .register_new_account(&mut suite, contracts.account_factory, Coins::default())
+            .await
+            .unwrap();
+
+        // Refresh the session key signature
+        owner = owner
+            .sign_session_key(
+                &suite.chain_id,
+                suite.block.timestamp + Duration::from_seconds(100),
+            )
+            .unwrap();
+
+        // Create a SessionAccount from the new account
+        // using the same session key signature of the first account.
+        let mut owner2 = SessionAccount::new_from_same_username(&owner, owner2);
+
+        // Send some coins to the new account
+        suite
+            .transfer(
+                &mut owner,
+                owner2.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+
+        // The new account should be able to send coins to the relayer
+        suite
+            .transfer(
+                &mut owner2,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+    }
+
+    // Generate a new fresh session_key
+    {
+        owner = owner
+            .refresh_session_key()
+            .unwrap()
+            .sign_session_key(
+                &suite.chain_id,
+                suite.block.timestamp + Duration::from_seconds(100),
+            )
+            .unwrap();
+
+        // Send some coins to the relayer
+        suite
+            .transfer(
+                &mut owner,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+    }
+}
+
+/// Two session keys on the _same_ account each get an independent nonce window,
+/// so independent bots don't collide even when they use the same nonce value.
+/// Under the old shared window the second bot's transaction would be rejected as
+/// "nonce is already seen".
+#[tokio::test]
+async fn session_keys_have_independent_nonce_windows() {
+    let (mut suite, accounts, ..) = setup_test_naive(Default::default());
+
+    suite.block_time = Duration::from_seconds(1);
+
+    let expire_at = suite.block.timestamp + Duration::from_seconds(1000);
+
+    let mut bot1 = SessionAccount::new(accounts.owner.clone())
+        .sign_session_key(&suite.chain_id, expire_at)
+        .unwrap();
+    let mut bot2 = SessionAccount::new(accounts.owner.clone())
+        .sign_session_key(&suite.chain_id, expire_at)
+        .unwrap();
+
+    // Both bots start from the same nonce value.
+    assert_eq!(bot1.session_nonce, bot2.session_nonce);
+
+    // Interleave several rounds; each bot's window advances independently and
+    // neither collides with the other.
+    for _ in 0..3 {
+        suite
+            .transfer(
+                &mut bot1,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+
+        suite
+            .transfer(
+                &mut bot2,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
+            )
+            .await
+            .should_succeed();
+    }
+}
+
+/// A session key's first nonce must exceed the account's standard high-water
+/// mark. This rejects replays of pre-split session transactions (whose nonces
+/// lived in the shared `SEEN_NONCES`) while letting `max + 1` through.
+#[tokio::test]
+async fn first_session_nonce_must_clear_account_high_water_mark() {
+    let (mut suite, accounts, ..) = setup_test_naive(Default::default());
+
+    suite.block_time = Duration::from_seconds(1);
+
+    let mut owner = accounts.owner;
+
+    // Raise the account's standard high-water mark with a few standard txs.
+    for _ in 0..3 {
+        suite
+            .transfer(
+                &mut owner,
+                accounts.user1.address(),
+                Coin::new(usdc::DENOM.clone(), 1).unwrap(),
+            )
+            .await
+            .should_succeed();
+    }
+
+    // The last standard nonce used is the high-water mark (the floor).
+    let high_water_mark = owner.nonce - 1;
+
+    let mut bot = SessionAccount::new(owner.clone())
+        .sign_session_key(
+            &suite.chain_id,
+            suite.block.timestamp + Duration::from_seconds(1000),
+        )
+        .unwrap();
+
+    // A first session nonce at or below the high-water mark is rejected: this is
+    // exactly the pre-split replay that the floor is designed to block.
+    bot.session_nonce = high_water_mark;
+    suite
+        .transfer(
+            &mut bot,
+            accounts.user1.address(),
+            Coin::new(usdc::DENOM.clone(), 1).unwrap(),
+        )
+        .await
+        .should_fail_with_error("first session nonce is too old");
+
+    // `high_water_mark + 1` (what a spec-compliant client picks) is accepted.
+    bot.session_nonce = high_water_mark + 1;
+    suite
+        .transfer(
+            &mut bot,
+            accounts.user1.address(),
+            Coin::new(usdc::DENOM.clone(), 1).unwrap(),
+        )
+        .await
+        .should_succeed();
+}

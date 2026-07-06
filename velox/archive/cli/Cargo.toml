@@ -1,0 +1,36 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-archive-cli"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[[bin]]
+name = "archive"
+path = "src/main.rs"
+
+[dependencies]
+anyhow                      = { workspace = true }
+clap                        = { workspace = true, features = ["wrap_help"] }
+velox-archive-app           = { workspace = true, features = ["metrics", "tracing"] }
+velox-archive-block-source  = { workspace = true, features = ["metrics", "tracing"] }
+velox-archive-httpd         = { workspace = true, features = ["metrics", "tracing"] }
+velox-archive-projection    = { workspace = true, features = ["metrics", "tracing"] }
+velox-config-parser         = { workspace = true }
+velox-indexer-cache         = { workspace = true, features = ["metrics", "tracing"] }
+velox-indexer-metrics       = { workspace = true, features = ["tracing"] }
+velox-primitives            = { workspace = true }
+velox-sdk                   = { workspace = true, features = ["tracing"] }
+futures                     = { workspace = true }
+home                        = { workspace = true }
+metrics                     = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+sea-orm                     = { workspace = true }
+serde                       = { workspace = true, features = ["derive"] }
+tokio                       = { workspace = true }
+tracing                     = { workspace = true }
+tracing-subscriber          = { workspace = true }

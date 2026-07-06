@@ -1,0 +1,35 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-db-disk"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+metrics = ["velox-primitives/metrics", "dep:metrics"]
+tracing = ["dep:tracing", "dep:uuid"]
+
+[dependencies]
+velox-app        = { workspace = true }
+velox-backtrace  = { workspace = true }
+velox-primitives = { workspace = true }
+hex              = { workspace = true }
+itertools        = { workspace = true }
+metrics          = { workspace = true, optional = true }
+num_cpus         = { workspace = true }
+parking_lot      = { workspace = true }
+rocksdb          = { workspace = true }
+thiserror        = { workspace = true }
+tracing          = { workspace = true, optional = true }
+uuid             = { workspace = true, optional = true }
+
+[dev-dependencies]
+velox-jmt          = { workspace = true }
+velox-storage      = { workspace = true }
+velox-temp-rocksdb = { workspace = true }
+hex-literal        = { workspace = true }
+proptest           = { workspace = true }

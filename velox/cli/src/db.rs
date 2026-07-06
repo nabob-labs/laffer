@@ -1,0 +1,62 @@
+use {
+    crate::home_directory::HomeDirectory,
+    clap::Subcommand,
+    colored::Colorize,
+    std::fs,
+    velox_app::{Db, SimpleCommitment},
+    velox_db_disk::DiskDb,
+};
+
+#[derive(Subcommand)]
+pub enum DbCmd {
+    /// Print the database version
+    Version,
+    /// Delete the entire database
+    Reset {
+        /// Skip confirmation
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
+
+impl DbCmd {
+    pub fn run(self, dir: HomeDirectory) -> anyhow::Result<()> {
+        let data_dir = dir.data_dir();
+
+        if !data_dir.exists() {
+            println!("Data directory {data_dir:?} not found, nothing to do.");
+            return Ok(());
+        }
+
+        match self {
+            DbCmd::Version => {
+                let db = DiskDb::<SimpleCommitment>::open(dir.data_dir())?;
+
+                println!("Latest version: {:?}", db.latest_version());
+                println!("Oldest version: {:?}", db.oldest_version());
+            }
+            DbCmd::Reset { yes } => {
+                if !yes {
+                    confirm(
+                        format!(
+                            "Confirm deleting data directory {data_dir:?}? This operation is irreversible."
+                        )
+                        .bold()
+                        .to_string(),
+                    )?;
+                }
+
+                fs::remove_dir_all(data_dir)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn confirm<T>(prompt: T) -> dialoguer::Result<bool>
+where
+    T: Into<String>,
+{
+    dialoguer::Confirm::new().with_prompt(prompt).interact()
+}

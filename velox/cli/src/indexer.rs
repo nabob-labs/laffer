@@ -1,0 +1,227 @@
+use {
+    crate::{config::Config, home_directory::HomeDirectory},
+    clap::{Parser, Subcommand},
+    metrics_exporter_prometheus::PrometheusBuilder,
+    std::{
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    },
+    tokio::task::JoinSet,
+    velox_config_parser::parse_config,
+    velox_indexer_cache::{Cache, IndexerPath, cache_file::CacheFile},
+};
+
+#[derive(Parser)]
+pub struct IndexerCmd {
+    #[command(subcommand)]
+    subcmd: SubCmd,
+}
+
+#[derive(Subcommand)]
+enum SubCmd {
+    /// View a block and results
+    Block { height: u64 },
+
+    /// View a range of blocks and results
+    Blocks {
+        /// Start height (inclusive)
+        start: u64,
+        /// End height (inclusive)
+        end: u64,
+    },
+
+    /// Search for a pattern in the given inclusive range of blocks
+    // TODO: make block range optional and figure it out automatically
+    Find {
+        text: String,
+        /// Start height (inclusive)
+        start: u64,
+        /// End height (inclusive)
+        end: u64,
+    },
+
+    /// Start the metrics HTTP server
+    MetricsHttpd,
+
+    /// Sync the indexer block cache to S3
+    S3Sync {
+        /// Wallclock ceiling for the whole sync, in seconds.
+        #[arg(long, default_value_t = 480)]
+        timeout_secs: u64,
+    },
+}
+
+impl IndexerCmd {
+    pub async fn run(self, app_dir: HomeDirectory) -> anyhow::Result<()> {
+        match self.subcmd {
+            SubCmd::Block { height } => {
+                let indexer_path = IndexerPath::Dir(app_dir.indexer_dir());
+                let block_filename = indexer_path.block_path(height);
+                let block_to_index = CacheFile::load_from_disk(block_filename)?;
+
+                println!("Block: {:#?}", block_to_index.block);
+                println!("Block Outcome: {:#?}", block_to_index.block_outcome);
+            }
+            SubCmd::Blocks { start, end } => {
+                let indexer_path = IndexerPath::Dir(app_dir.indexer_dir());
+                let mut set = JoinSet::new();
+
+                for block in start..=end {
+                    let indexer_path = indexer_path.clone();
+
+                    set.spawn(async move {
+                        let block_filename = indexer_path.block_path(block);
+
+                        tokio::task::spawn_blocking(move || {
+                            let block_to_index = match CacheFile::load_from_disk(block_filename) {
+                                Ok(block_to_index) => block_to_index,
+                                Err(err) => {
+                                    println!("Error loading block {block}: {err}");
+                                    return;
+                                }
+                            };
+
+                            println!("Block: {:#?}", block_to_index.block);
+                            println!("Block Outcome: {:#?}", block_to_index.block_outcome);
+                        });
+                    });
+                }
+
+                while let Some(res) = set.join_next().await {
+                    if let Err(e) = res {
+                        eprintln!("Task panicked: {e}");
+                    }
+                }
+            }
+            SubCmd::Find { text, start, end } => {
+                let indexer_path = IndexerPath::Dir(app_dir.indexer_dir());
+                let mut set = JoinSet::new();
+
+                for block in start..=end {
+                    let indexer_path = indexer_path.clone();
+                    let text = text.clone();
+
+                    set.spawn(async move {
+                        let block_filename = indexer_path.block_path(block);
+
+                        tokio::task::spawn_blocking(move || {
+                            let block_to_index = match CacheFile::load_from_disk(block_filename) {
+                                Ok(block_to_index) => block_to_index,
+                                Err(err) => {
+                                    eprintln!("Error loading block {block}: {err}");
+                                    return;
+                                }
+                            };
+
+                            let block_text = format!("{:#?}", block_to_index.block);
+                            let block_results = format!("{:#?}", block_to_index.block_outcome);
+
+                            if block_text.contains(&text) || block_results.contains(&text) {
+                                println!("Found in block {block}:");
+                                println!("Block: {block_text:#?}");
+                                println!("Block Outcome: {block_results:#?}");
+                            }
+                        });
+                    });
+                }
+
+                while let Some(res) = set.join_next().await {
+                    if let Err(e) = res {
+                        eprintln!("Task panicked: {e}");
+                    }
+                }
+            }
+            SubCmd::MetricsHttpd => {
+                // Initialize metrics handler.
+                // This should be done as soon as possible to capture all events.
+                let metrics_handler = PrometheusBuilder::new().install_recorder()?;
+
+                let cfg: Config = parse_config(app_dir.config_file())?;
+
+                tracing::info!(
+                    "Starting metrics HTTP server at {}:{}",
+                    &cfg.metrics_httpd.ip,
+                    cfg.metrics_httpd.port
+                );
+
+                // Run the metrics HTTP server
+                velox_indexer_metrics::run_metrics_server(
+                    &cfg.metrics_httpd.ip,
+                    cfg.metrics_httpd.port,
+                    metrics_handler,
+                )
+                .await?;
+            }
+            SubCmd::S3Sync { timeout_secs } => {
+                let cfg: Config = parse_config(app_dir.config_file())?;
+
+                let mut indexer_cache = Cache::new_with_dir(app_dir.indexer_dir());
+                indexer_cache.context.s3 = cfg.indexer.s3.clone();
+
+                // Read the last synced height from disk
+                let last_synced_height =
+                    Cache::read_last_s3_block_height(&indexer_cache.context)?.unwrap_or(0);
+
+                let start = Instant::now();
+
+                tracing::info!(last_synced_height, timeout_secs, "Starting S3 sync");
+
+                // Wrap the sync in a wallclock timeout. Without this a single
+                // unreachable bucket lets a `*/10` cron stack invocations on
+                // top of each other forever — the prod incident on
+                // 2026-05-03 saw 30+ accumulated processes after 7h. The
+                // `JoinSet` in `sync_to_s3` ensures hitting the deadline
+                // actually cancels the spawned upload tasks rather than
+                // leaking them on the runtime.
+                let new_height = match tokio::time::timeout(
+                    Duration::from_secs(timeout_secs),
+                    Cache::sync_to_s3(
+                        &indexer_cache.context,
+                        indexer_cache.s3_bitmap.clone(),
+                        last_synced_height,
+                    ),
+                )
+                .await
+                {
+                    Ok(Ok(h)) => h,
+                    Ok(Err(e)) => return Err(e.into()),
+                    Err(_elapsed) => {
+                        tracing::error!(timeout_secs, "S3 sync exceeded deadline; aborting");
+                        anyhow::bail!("s3 sync timed out after {timeout_secs}s");
+                    }
+                };
+
+                // Only store the new height if sync succeeded and made progress
+                if let Some(height) = new_height {
+                    Cache::store_last_s3_block_height(&indexer_cache.context, height)?;
+                }
+
+                tracing::info!(
+                    elapsed = start.elapsed().as_secs_f32(),
+                    last_synced_height,
+                    new_height = ?new_height,
+                    "Finished syncing to S3"
+                );
+
+                // The sync will definitely take a few seconds, I reload the s3_bitmap from disk which could have be modified
+                // in the meantime, merge both and rewrite it.
+                // What can happen:
+                // - We write the bitmap at the same time as the velox process, therefor missing the changes from here
+                // - We write the bitmap at the same time as the velox process, therefor missing the change from velox process
+                // Both are fine.
+
+                let on_disk_s3_bitmap = Cache::s3_bitmap(&indexer_cache.context.indexer_path);
+
+                let s3_bitmap = indexer_cache.s3_bitmap.lock().map_err(|err| {
+                    velox_indexer_cache::error::IndexerError::mutex_poisoned(err.to_string())
+                })?;
+
+                let merged = &on_disk_s3_bitmap | &*s3_bitmap;
+
+                Cache::store_bitmap(&indexer_cache.context, Arc::new(Mutex::new(merged)))?;
+            }
+        }
+
+        Ok(())
+    }
+}

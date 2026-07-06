@@ -1,0 +1,33 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+description   = "Command-line client for interacting with a Velox node"
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-sdk-cli"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+anyhow              = { workspace = true }
+bip32               = { workspace = true }
+clap                = { workspace = true, features = ["derive", "wrap_help"] }
+colored             = { workspace = true }
+colored_json        = { workspace = true }
+velox-app           = { workspace = true }
+velox-config-parser = { workspace = true }
+velox-primitives    = { workspace = true }
+velox-sdk           = { workspace = true }
+velox-types         = { workspace = true }
+dialoguer           = { workspace = true }
+hex                 = { workspace = true }
+home                = { workspace = true }
+rand                = { workspace = true }
+serde               = { workspace = true }
+tokio               = { workspace = true }
+
+[[bin]]
+name = "velox-client"
+path = "src/main.rs"
