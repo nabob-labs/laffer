@@ -103,7 +103,7 @@ type InnerSpec = {
 
 ```
 -->
-We created a variable with the same values that were set in the [following Rust code](https://github.com/left-curve/left-curve/blob/7a0451dfad14d607722c33bec20ae56dd5c3bffa/grug/jellyfish-merkle/src/ics23.rs#L18-L37):
+We created a variable with the same values that were set in the [following Rust code](https://github.com/nabob-labs/laffer/blob/7a0451dfad14d607722c33bec20ae56dd5c3bffa/grug/jellyfish-merkle/src/ics23.rs#L18-L37):
 
 ```rust
 pub static ICS23_PROOF_SPEC: LazyLock<ProofSpec> = LazyLock::new(|| ProofSpec {
@@ -140,7 +140,7 @@ pure val ics23::InnerSpec: InnerSpec = {
 }
 ```
 
-`InnerSpec.child_order` for Grug JMT is defined [here](https://github.com/left-curve/left-curve/blob/4890cb58a4b60acfacbc19d6c041f72db2b5b8ee/grug/jellyfish-merkle/src/ics23.rs#L27).
+`InnerSpec.child_order` for Grug JMT is defined [here](https://github.com/nabob-labs/laffer/blob/4890cb58a4b60acfacbc19d6c041f72db2b5b8ee/grug/jellyfish-merkle/src/ics23.rs#L27).
 `Hash256_ZERO` is placed in [hashes.qnt](../quint/hashes.qnt).
 
 ```bluespec

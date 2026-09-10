@@ -1,0 +1,14 @@
+---
+- include_tasks: cloudflare_lb_cleanup.yml
+  when: lb_exclude | default({}) | length > 0
+
+- include_tasks: cloudflare_tunnel.yml
+
+- include_tasks: cloudflare_lb.yml
+  loop: "{{ velox_networks }}"
+  loop_control:
+    loop_var: velox_network
+  when: cloudflare_lb_enabled
+
+- include_tasks: cloudflare_archive_lb.yml
+  run_once: true

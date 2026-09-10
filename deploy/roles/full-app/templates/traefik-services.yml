@@ -1,0 +1,168 @@
+# I can't use traefik for TCP nodes, the internal cometbft deduplication is broken because
+# it sees all inbound through the same traefik internal IP and reject connections
+# This breaks if > 2 cometbft nodes.
+# tcp:
+#   services:
+#     {{ velox_network }}-cometbft_p2p:
+#       loadBalancer:
+#         servers:
+#           - address: "{{ deployment_name }}-cometbft-1:26656"
+#   routers:
+#     {{ velox_network }}-cometbft_p2p:
+#       rule: "HostSNI(`*`)"
+#       entryPoints:
+#         - "{{ velox_network }}-cometbft_p2p"
+#       service: "{{ velox_network }}-cometbft_p2p"
+
+http:
+  middlewares:
+    {{ velox_network }}-cors-velox:
+      headers:
+        accessControlAllowOriginListRegex:
+          - ^https://([a-z0-9-]+\.)*velox\.zone$
+          - ^https://([a-z0-9-]+\.)*velox\.exchange$
+          - ^https://([a-z0-9-]+\.)*velox-portal\.pages\.dev$
+        accessControlAllowMethods: ["GET","POST","OPTIONS"]
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+          - Accept
+          - X-Requested-With
+          - sentry-trace
+          - baggage
+        accessControlAllowCredentials: true
+        addVaryHeader: true
+        accessControlMaxAge: 600
+  services:
+    {{ velox_network }}-velox:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-velox-1:8080"
+    {{ velox_network }}-velox-metrics:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-velox-1:9191"
+    {{ velox_network }}-faucet_bot:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-faucet-bot-1:8082"
+    {{ velox_network }}-cometbft_rpc:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-cometbft-1:26657"
+    {{ velox_network }}-cometbft_metrics:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-cometbft-1:26660"
+    {{ velox_network }}-db-metrics:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-postgres-prometheus-1:9187"
+    {{ velox_network }}-clickhouse-metrics:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-clickhouse-1:9126"
+    {{ velox_network }}-graphiql:
+      loadBalancer:
+        servers:
+          - url: "http://{{ deployment_name }}-graphiql-1:80"
+
+  routers:
+    {{ velox_network }}-main-backend:
+      rule: "Host(`api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}`) || Host(`api-{{ velox_network }}.{{ velox_domain }}`){% if internal_api_enabled | default(false) %} || Host(`api-{{ velox_network }}-internal-{{ hostname }}.{{ velox_domain }}`){% endif %}"
+      entryPoints:
+        - "web"
+      service: "{{ velox_network }}-velox"
+      middlewares:
+        - "{{ velox_network }}-cors-velox"
+
+    {{ velox_network }}-main-backend-ssl:
+      rule: "Host(`api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}`) || Host(`api-{{ velox_network }}.{{ velox_domain }}`){% if internal_api_enabled | default(false) %} || Host(`api-{{ velox_network }}-internal-{{ hostname }}.{{ velox_domain }}`){% endif %}"
+      entryPoints:
+        - "websecure"
+      tls: {}
+      service: "{{ velox_network }}-velox"
+      middlewares:
+        - "{{ velox_network }}-cors-velox"
+
+    {{ velox_network }}-main-faucet_bot:
+      rule: "Host(`faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}`) || Host(`faucet-{{ velox_network }}.{{ velox_domain }}`)"
+      entryPoints:
+        - "web"
+      service: "{{ velox_network }}-faucet_bot"
+      middlewares:
+        - "{{ velox_network }}-cors-velox"
+
+    {{ velox_network }}-main-faucet_bot-ssl:
+      rule: "Host(`faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}`) || Host(`faucet-{{ velox_network }}.{{ velox_domain }}`)"
+      entryPoints:
+        - "websecure"
+      tls: {}
+      service: "{{ velox_network }}-faucet_bot"
+      middlewares:
+        - "{{ velox_network }}-cors-velox"
+
+    {{ velox_network }}-main-graphiql:
+      rule: "Host(`graphiql-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}`) || Host(`graphiql-{{ velox_network }}.{{ velox_domain }}`)"
+      entryPoints:
+        - "web"
+      service: "{{ velox_network }}-graphiql"
+
+    {{ velox_network }}-main-graphiql-ssl:
+      rule: "Host(`graphiql-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}`) || Host(`graphiql-{{ velox_network }}.{{ velox_domain }}`)"
+      entryPoints:
+        - "websecure"
+      tls: {}
+      service: "{{ velox_network }}-graphiql"
+
+    # {{ velox_network }}-velox:
+    #   rule: "PathPrefix(`/`)"
+    #   entryPoints:
+    #     - "{{ velox_network }}-velox"
+    #   service: "{{ velox_network }}-velox"
+    #   middlewares:
+    #     - "{{ velox_network }}-cors-velox"
+
+    {{ velox_network }}-velox-metrics:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "{{ velox_network }}-velox-metrics"
+      service: "{{ velox_network }}-velox-metrics"
+
+    # {{ velox_network }}-faucet_bot:
+    #   rule: "PathPrefix(`/`)"
+    #   entryPoints:
+    #     - "{{ velox_network }}-faucet_bot"
+    #   service: "{{ velox_network }}-faucet_bot"
+    #   middlewares:
+    #     - "{{ velox_network }}-cors-velox"
+
+    {{ velox_network }}-cometbft_rpc:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "{{ velox_network }}-cometbft_rpc"
+      service: "{{ velox_network }}-cometbft_rpc"
+
+    {{ velox_network }}-cometbft_abci:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "{{ velox_network }}-cometbft_abci"
+      service: "{{ velox_network }}-cometbft_abci"
+
+    {{ velox_network }}-cometbft_metrics:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "{{ velox_network }}-cometbft_metrics"
+      service: "{{ velox_network }}-cometbft_metrics"
+
+    {{ velox_network }}-db-metrics:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "{{ velox_network }}-db-metrics"
+      service: "{{ velox_network }}-db-metrics"
+
+    {{ velox_network }}-clickhouse-metrics:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "{{ velox_network }}-clickhouse-metrics"
+      service: "{{ velox_network }}-clickhouse-metrics"

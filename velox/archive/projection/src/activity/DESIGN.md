@@ -28,7 +28,7 @@ The commitment check alone is sufficient — a failed-but-**handled** submessage
 (reply on error) is covered by construction: its state changes are reverted
 even though the tx continues, and the flattener downgrades its whole subtree
 to `Failed` regardless of the enclosing group's status
-(`SubEventStatus::Handled` in `dango/core/types/src/events/flatten.rs`), while
+(`SubEventStatus::Handled` in `velox/core/types/src/events/flatten.rs`), while
 the reply that handled it keeps `Committed` — its effects are real. So within
 `Committed` the event status is `Ok` by construction, and no separate
 `event_status` filter is needed.
@@ -169,7 +169,7 @@ The hash is not globally unique. Uniqueness would have to lean on the nonce,
 and it doesn't:
 
 - **Failed txs don't consume their nonce.** In `process_tx`
-  (`dango/core/app/src/app.rs`), a tx that fails `withhold_fee` (sender can't
+  (`velox/core/app/src/app.rs`), a tx that fails `withhold_fee` (sender can't
   cover the max fee) or `authenticate` returns a failed outcome while the state
   buffer holding the nonce write into `SEEN_NONCES` is **dropped, not
   committed** — yet the tx is still recorded in the block
@@ -510,7 +510,7 @@ history — mirrors `app/src/committer/`). The read surface (below) lives in
 `http/` (`feeds.rs` DB queries · `services/` actix handlers + scopes, one module
 per resource: `transaction.rs`, `events.rs` · `hydrate.rs` eager payload
 hydration · `types.rs` objects + enums · `pagination.rs` keyset · `error.rs`).
-Adds `dango-primitives` to the
+Adds `velox-primitives` to the
 `projection` crate (for `FlatCategory` / `EventId` / `Extractable` /
 `flatten_tx_events` / `flatten_commitment_status`), plus `zstd`/`borsh` for the
 `event_data` payloads.

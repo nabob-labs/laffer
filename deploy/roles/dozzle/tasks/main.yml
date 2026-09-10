@@ -1,0 +1,34 @@
+- name: Ensure dir exists
+  file:
+    path: "{{ dozzle_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy docker-compose
+  template:
+    src: "{{ playbook_dir }}/roles/dozzle/templates/docker-compose.yml"
+    dest: "{{ dozzle_dir }}/docker-compose.yml"
+
+- name: Launch Dozzle stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ dozzle_dir }}"
+    pull: missing
+    state: present
+    recreate: always
+
+- name: Install systemd unit for Dozzle compose
+  become: true
+  become_user: root
+  template:
+    src: dozzle-compose.service.j2
+    dest: /etc/systemd/system/dozzle-compose.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Enable and start dozzle-compose service
+  become: true
+  become_user: root
+  systemd:
+    name: dozzle-compose.service
+    enabled: true
+    state: started

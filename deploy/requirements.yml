@@ -1,0 +1,15 @@
+collections:
+  - name: community.docker
+  - name: community.postgresql
+  - name: community.general
+  - name: community.clickhouse
+  - name: community.sops
+  - name: amazon.aws
+  - name: artis3n.tailscale
+    version: "1.2.1"
+roles:
+  - name: MonolithProjects.github_actions_runner
+    src: MonolithProjects.github_actions_runner
+    version: "1.28.0"
+  - name: geerlingguy.swap
+    version: "2.0.0"

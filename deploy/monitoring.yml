@@ -1,0 +1,31 @@
+- hosts: monitoring
+  become: true
+  become_user: "{{ deploy_user }}"
+  remote_user: "debian"
+  gather_facts: false
+  vars:
+    loki_url: "http://loki:3100"
+  pre_tasks:
+    - ansible.builtin.import_tasks: tasks/load-debian-root-secrets.yml
+
+    - name: Get deploy user info
+      getent:
+        database: passwd
+        key: "{{ deploy_user }}"
+
+    - name: Set deploy_home fact
+      set_fact:
+        deploy_home: "{{ ansible_facts.getent_passwd[deploy_user][4] }}"
+
+    - name: Create monitoring network
+      community.docker.docker_network:
+        name: monitoring
+        state: present
+  roles:
+    - loki
+    - cloudflare-edge-observer
+    - prometheus
+    - promtail
+    - node-exporter
+    - tempo
+    - grafana

@@ -1,0 +1,245 @@
+---
+- name: Set tunnel name
+  set_fact:
+    tunnel_name: "host-{{ hostname }}"
+
+# find
+- name: Fetch existing tunnels
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id
+      }}/cfd_tunnel?name={{ tunnel_name }}&is_deleted=false"
+    method: GET
+    headers: { Authorization: "Bearer {{ cloudflare_api_token }}" }
+  register: list_resp
+  retries: 3
+  delay: 5
+
+# create if missing
+- name: Create tunnel if missing
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id
+      }}/cfd_tunnel"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: { name: "{{ tunnel_name }}", config_src: "cloudflare" }
+  register: create_resp
+  when: (list_resp.json.result | length) == 0
+  retries: 3
+  delay: 5
+
+# set tunnel_id
+- name: Set tunnel_id with existing tunnel
+  set_fact:
+    tunnel_id: >-
+      {{ (list_resp.json.result[0].id
+          if (list_resp.json.result | length) > 0
+          else create_resp.json.result.id) }}
+
+- name: Show existing tunnel_id
+  debug:
+    var: tunnel_id
+
+# fetch token
+- name: Fetch tunnel token
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id
+      }}/cfd_tunnel/{{ tunnel_id }}/token"
+    method: GET
+    headers: { Authorization: "Bearer {{ cloudflare_api_token }}" }
+  register: token_resp
+  retries: 3
+  delay: 5
+
+# set token (string or object-safe)
+- name: Set tunnel_token from fetched tunnel token
+  set_fact:
+    cloudflare_tunnel_token: >-
+      {{ token_resp.json.result
+         if (token_resp.json.result is string)
+         else token_resp.json.result.token }}
+
+# derive id from token if you didn’t keep tunnel_id
+- name: Set tunnel_id from tunnel_token
+  set_fact:
+    tunnel_id: "{{ (cloudflare_tunnel_token | b64decode | from_json).t }}"
+  when: tunnel_id is not defined
+
+- name: Normalize archive instances
+  include_tasks: archive_instances.yml
+
+- name: Create cloudflared directory
+  file:
+    path: "{{ cloudflared_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy cloudflared templates
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ cloudflared_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "env.j2", dest: ".env", mode: "0600" }
+    - { src: "docker-compose.yml", dest: "docker-compose.yml", mode: "0644" }
+
+- name: Check host override template exists
+  delegate_to: localhost
+  become: false
+  stat:
+    path: "{{ role_path }}/templates/config-{{ hostname }}.yml"
+  register: cf_override
+
+- name: Copy default cloudflared config
+  when: not cf_override.stat.exists
+  template:
+    src: config.yml
+    dest: "{{ cloudflared_dir }}/config.yml"
+    mode: "0644"
+
+- name: Copy host override cloudflared config
+  template:
+    src: "config-{{ hostname }}.yml"
+    dest: "{{ cloudflared_dir }}/config.yml"
+    mode: "0644"
+  when: cf_override.stat.exists
+
+- name: Create cloudflare network
+  community.docker.docker_network:
+    name: cloudflare
+
+- name: Start cloudflared
+  community.docker.docker_compose_v2:
+    project_src: "{{ cloudflared_dir }}"
+    state: present
+    recreate: always
+    wait: true
+
+- name: Install systemd unit for Cloudflared compose
+  become: true
+  become_user: root
+  template:
+    src: cloudflared-compose.service.j2
+    dest: /etc/systemd/system/cloudflared-compose.service
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Enable and start cloudflared-compose service
+  become: true
+  become_user: root
+  systemd:
+    name: cloudflared-compose.service
+    enabled: true
+    state: started
+
+- name: Ensure per-host CNAME → tunnel
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "{{ item.1 }}-{{ item.0 }}-{{ hostname }}"
+    type: CNAME
+    value: "{{ tunnel_id }}.cfargotunnel.com"
+    proxied: true
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  loop: "{{ velox_networks | product(['api','faucet','graphiql']) | list }}"
+  when: (item.1 != 'faucet') or (faucet_bot_enabled | default(false))
+  retries: 3
+  delay: 5
+
+- name: Ensure per-host CNAME → tunnel
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "tunnel-{{ hostname }}"
+    type: CNAME
+    value: "{{ tunnel_id }}.cfargotunnel.com"
+    proxied: true
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  retries: 3
+  delay: 5
+
+- name: Ensure per-host archive CNAME → tunnel
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "api-archive-{{ item.name }}-{{ hostname }}"
+    type: CNAME
+    value: "{{ tunnel_id }}.cfargotunnel.com"
+    proxied: true
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  loop: "{{ archive_public_instances }}"
+  loop_control:
+    label: "api-archive-{{ item.name }}-{{ hostname }}"
+  retries: 3
+  delay: 5
+
+# NOTE: There is no support for round-robin for CNAME so we point at a single
+# server.
+- name: Create DNS for services (when LB disabled)
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "{{ item.1 }}-{{ item.0 }}"
+    type: CNAME
+    value: "{{ tunnel_id }}.cfargotunnel.com"
+    proxied: true
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  loop: "{{ velox_networks | product(['api','faucet']) | list }}"
+  when:
+    - not cloudflare_lb_enabled
+    - (item.1 != 'faucet') or (faucet_bot_enabled | default(false))
+  retries: 3
+  delay: 5
+
+- name: Create DNS for LB-excluded services (single-instance via tunnel)
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "{{ item.1 }}-{{ item.0 }}"
+    type: CNAME
+    value: "{{ tunnel_id }}.cfargotunnel.com"
+    proxied: true
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  loop: "{{ velox_networks | product(['api', 'faucet']) | list }}"
+  when:
+    - cloudflare_lb_enabled
+    - item.1 in (lb_exclude[item.0] | default([]))
+    - (item.1 != 'faucet') or (faucet_bot_enabled | default(false))
+  retries: 3
+  delay: 5
+
+- name: Create DNS for graphiql services
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "{{ item.1 }}-{{ item.0 }}"
+    type: CNAME
+    value: "{{ tunnel_id }}.cfargotunnel.com"
+    proxied: true
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  loop: "{{ velox_networks | product(['graphiql']) | list }}"
+  retries: 3
+  delay: 5
+
+# Internal API: direct A record to the host's public IP (no Cloudflare proxy)
+- name: Fetch server public IP (for internal API A record)
+  shell: curl -s https://api.ipify.org
+  register: server_public_ip_resp
+  changed_when: false
+  when: internal_api_enabled | default(false)
+
+- name: Ensure direct A record for internal API
+  community.general.cloudflare_dns:
+    zone: "{{ velox_domain }}"
+    record: "api-{{ item }}-internal-{{ hostname }}"
+    type: A
+    value: "{{ server_public_ip_resp.stdout }}"
+    proxied: false
+    state: present
+    api_token: "{{ cloudflare_api_token }}"
+  loop: "{{ velox_networks }}"
+  when: internal_api_enabled | default(false)
+  retries: 3
+  delay: 5

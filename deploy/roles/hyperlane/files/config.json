@@ -1,0 +1,74 @@
+{
+  "chains": {
+    "velox": {
+      "chain_id": "velox-1",
+      "httpd_urls": ["http://velox:8080", "https://api-mainnet.velox.zone"],
+      "mailbox": "0x974e57564ed3ed7d8f99d0c359fd03f3d78259c7",
+      "interchainGasPaymaster": "0x0000000000000000000000000000000000000000",
+      "validatorAnnounce": "0x75f38c6fcfc2fb8333e5c3ef89d13b7036abe3ff",
+      "merkleTreeHook": "0x974e57564ed3ed7d8f99d0c359fd03f3d78259c7",
+      "index": {
+        "chunk": 50,
+        "from": 1
+      },
+      "signer": {
+        "type": "veloxKey"
+      }
+    },
+    "veloxtestnet": {
+      "chain_id": "velox-testnet-1",
+      "httpd_urls": ["http://velox:8080", "https://api-testnet.velox.zone"],
+      "mailbox": "0x974e57564ed3ed7d8f99d0c359fd03f3d78259c7",
+      "interchainGasPaymaster": "0x0000000000000000000000000000000000000000",
+      "validatorAnnounce": "0x75f38c6fcfc2fb8333e5c3ef89d13b7036abe3ff",
+      "merkleTreeHook": "0x974e57564ed3ed7d8f99d0c359fd03f3d78259c7",
+      "index": {
+        "chunk": 50,
+        "from": 1
+      },
+      "signer": {
+        "type": "veloxKey"
+      }
+    },
+    "ethereum": {
+      "index": {
+        "chunk": 20,
+        "from": 24171282
+      },
+      "signer": {
+        "type": "hexKey"
+      }
+    },
+    "sepolia": {
+      "index": {
+        "chunk": 20,
+        "from": 9817880
+      },
+      "signer": {
+        "type": "hexKey"
+      }
+    },
+    "arbitrumsepolia": {
+      "index": {
+        "chunk": 20,
+        "from": 277880000
+      },
+      "signer": {
+        "type": "hexKey"
+      }
+    },
+    "arbitrum": {
+      "index": {
+        "chunk": 20,
+        "from": 474230000
+      },
+      "signer": {
+        "type": "hexKey"
+      }
+    }
+  },
+  "log": {
+    "format": "json",
+    "level": "info"
+  }
+}

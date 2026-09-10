@@ -22,7 +22,7 @@ changing what is observed.
   counters that already shipped (`archive_activity_*_total`).
   Counters end `_total`; latency histograms end `_duration_seconds` (seconds, as
   `Instant::elapsed().as_secs_f64()`); gauges are bare nouns.
-- **Exception — RocksDB internals** reuse dango's exact names (`rocksdb_*` with
+- **Exception — RocksDB internals** reuse velox's exact names (`rocksdb_*` with
   `type` / `cf` labels, §RocksDB internals), so the **node's RocksDB Grafana
   dashboard works verbatim** against this service's `/metrics` (separate process,
   separate scrape target — no collision). Everything else is `archive_*`.
@@ -34,7 +34,7 @@ changing what is observed.
   Grafana (`rate()`, `frontier − height`), as the user expects.
 - **Description**: each crate ships an always-present `init_metrics()` whose body
   is metrics-gated (`describe_*!` help strings, `Once`-guarded), called once from
-  the cli at boot — the dango `metrics.rs` idiom.
+  the cli at boot — the velox `metrics.rs` idiom.
 
 ## Wiring
 
@@ -45,7 +45,7 @@ changing what is observed.
 - A `[metrics]` config section (`enabled` / `ip` / `port`, default
   `true` / `0.0.0.0` / `9191`, env-overridable like everything else) controls the
   scrape endpoint. When enabled, the cli serves `GET /metrics` via the shared
-  `dango_indexer_metrics::run_metrics_server` (the same helper the node uses), on
+  `velox_indexer_metrics::run_metrics_server` (the same helper the node uses), on
   its own thread with its own actix `System` — the proven pattern from the
   read-API `serve`. It is supervised at the top level alongside `App::run`, so it
   stays up even in ingest-only mode (`httpd.enabled = false`).
@@ -123,7 +123,7 @@ store can't keep up with both writers; a full **broadcast** ⇒ a projection lag
 | `archive_block_store_get_duration_seconds`   | histogram | point read + borsh decode — **block read time**                                |
 | `archive_block_store_blocks_persisted_total` | counter   | blocks written to the store                                                    |
 
-### RocksDB internals (mirror dango — identical names for dashboard reuse)
+### RocksDB internals (mirror velox — identical names for dashboard reuse)
 
 Sampled every 5 s by the store's metric hook, per column family (`cf` ∈
 `default` / `blocks`), `type` selecting the sub-metric — same shape as the node's

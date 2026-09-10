@@ -30,7 +30,7 @@ In order to obtain confidence that the model is correct, in respect to the invar
 
 ## Simulations
 
-Simulations were the main tool we used while iterating over the model. It helped us spot several small issues as soon as they appeared, which often happen due to mistakes on writing the model and the invariants. On one of these routine runs, we found one actual issue (that was reproducible on the Rust implementation but low severity), which was [reported and fixed](https://github.com/left-curve/left-curve/pull/291).
+Simulations were the main tool we used while iterating over the model. It helped us spot several small issues as soon as they appeared, which often happen due to mistakes on writing the model and the invariants. On one of these routine runs, we found one actual issue (that was reproducible on the Rust implementation but low severity), which was [reported and fixed](https://github.com/nabob-labs/laffer/pull/291).
 
 Once the model and invariants are stable, and we don't get violations from the simulator on a few minutes, we can set up longer runs, which serve to increase our confidence on the model. The first one was run once our model and invariants for tree manipulation were stable, and the other ones were done after the model and invariants for proofs and proof verification were stable.
 

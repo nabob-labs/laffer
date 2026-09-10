@@ -1,0 +1,34 @@
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.description="Velox docker image"
+LABEL org.opencontainers.image.revision=$GIT_COMMIT
+LABEL org.opencontainers.image.source="https://github.com/nabob-labs/laffer"
+
+ARG TARGET_ARCH
+ARG GIT_COMMIT
+ENV GIT_COMMIT=$GIT_COMMIT
+# Read why it's commented in the cometbft image
+# ARG USERNAME=velox
+# ENV USERNAME=${USERNAME}
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y libssl-dev pkg-config libsqlite3-0 ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# RUN useradd --create-home --shell /bin/bash $USERNAME
+
+COPY target/${TARGET_ARCH}/release/velox /usr/local/bin/
+COPY velox/indexer/httpd/static /app/www
+# RUN chown $USERNAME:$USERNAME /usr/local/bin/velox
+
+# USER $USERNAME
+# WORKDIR /home/$USERNAME
+WORKDIR /app
+
+# Expose the indexer httpd (8080), and indexer metrics (9191).
+EXPOSE 8080 9191
+
+# Run velox.
+# This assumes that the `app.toml` file has been mounted to `/root/.velox/config/app.toml`.
+CMD ["velox", "start"]

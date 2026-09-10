@@ -2,7 +2,7 @@
 
 Concrete implementation of the [`BlockSource`](../DESIGN.md#blocksource) trait
 for the **detached** deployment: the archive runs on a host where
-**no dango node runs**, so raw blocks are not available on the local
+**no velox node runs**, so raw blocks are not available on the local
 filesystem and the `LocalBlockSource` strategy (read the node's cache files
 off disk) does not apply.
 
@@ -19,7 +19,7 @@ The **end goal** (agreed with the team, _not_ built now but kept in view): a
 set of sentinel nodes upload finalized blocks to an object store (B2) as
 compressed chunks while keeping a hot window (24–48h) of recent blocks. The
 `RemoteBlockSource` then pulls cold history from B2 and recent blocks from a
-sentinel. This is the tiered vision in `~/specs/left-curve/`
+sentinel. This is the tiered vision in `~/specs/nabob-labs/laffer/`
 (`indexer-storage-architecture.md`, `indexer-roles-and-responsibilities.md`).
 
 The **step we build now**: deploy the archive on a node-less
@@ -181,7 +181,7 @@ frontier is `O(#ranges)` away.
 - **`blocks` column family** — key = `height.to_be_bytes()` (big-endian, so
   RocksDB's lexicographic order _is_ height order), value = borsh-encoded
   `BlockData { block, outcome }`. (`BlockData` derives borsh; this is the same
-  on-disk format the dango node uses for its block cache files.)
+  on-disk format the velox node uses for its block cache files.)
 - **default CF** — one key, the topology checkpoint, as a borsh `Vec<(u64,u64)>`.
   Metadata lives in the default CF by convention (mirrors the chain's disk DB,
   whose default CF holds its `latest_version`), and keeping it out of the blocks
@@ -261,7 +261,7 @@ The live tail is the node's **`full_block`** subscription, opened on the
 `HttpdClient` via `subscribe_full_blocks()` (always at the tip) — the same shared
 path
 `LocalBlockSource` uses, only pointed at a remote sentinel rather than an
-in-process `dango-httpd`. Each event carries the **whole `BlockData`** (block +
+in-process `velox-httpd`. Each event carries the **whole `BlockData`** (block +
 outcome) as a JSON scalar, decoded directly, so the call hands back just a
 **stream of blocks** — the first delivered block is the resume point, with **no
 separate tip to return** (it is just `first.height()`, so plumbing it out-of-band
@@ -315,10 +315,10 @@ sentinel's `httpd`, which loads its cache file once and returns `block` +
 This replaces the earlier two-call assembly (`query_block` +
 `query_block_outcome`, which at 100M blocks was ~200M calls for a full backfill
 and loaded the _same_ node cache file twice per height — once per half). The
-combined routes live in the node's `dango/indexer` httpd and shipped there first;
+combined routes live in the node's `velox/indexer` httpd and shipped there first;
 the archive source depends on a sentinel exposing them. The wire shape is
 `{ block, outcome }`, decoded with **serde**: `BlockData` _is_ the node's
-`dango_primitives::FullBlock` (which derives `Serialize`/`Deserialize`), so there
+`velox_primitives::FullBlock` (which derives `Serialize`/`Deserialize`), so there
 is no private wire type to keep in sync with the node — borsh stays the on-disk
 format only.
 
@@ -526,7 +526,7 @@ the fetcher **per gap**, the layered fetcher routes each gap by height: old →
 B2 chunks, recent → sentinel hot window. Nothing in the store, coordinator,
 subscriber, or projections changes. The B2 side (chunk format, zstd dictionary,
 manifests, the overlap invariant between the hot window and the chunk cadence)
-is specified in `~/specs/left-curve/indexer-storage-architecture.md`.
+is specified in `~/specs/nabob-labs/laffer/indexer-storage-architecture.md`.
 
 **Storage cost** (raw, zstd; the store compresses on disk):
 

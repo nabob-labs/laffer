@@ -123,7 +123,7 @@ Not bugs, but the source cannot run in production until these land:
   `drain_live`'s reconnect / resync / gap handling still has no automated
   coverage (the earlier mock-subscriber tests were removed with the
   `LiveSubscriber` trait) and will be redone against `mock_httpd` (a real test
-  chain) from dango testing.
+  chain) from velox testing.
   The coordinator + bulk-advance paths and the RocksDB store (put/get,
   topology, idempotency, reopen-from-checkpoint) stay covered by unit tests over
   `MemoryBlockStore` / a temp RocksDB and a mock fetcher. The healer loop itself

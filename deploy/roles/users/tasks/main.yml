@@ -1,0 +1,135 @@
+- name: Create users
+  user:
+    name: "{{ item }}"
+    shell: /bin/bash
+    append: yes
+    state: present
+    create_home: yes
+  loop: "{{ ssh_users }}"
+
+- name: Enable lingering
+  command: loginctl enable-linger "{{ item }}"
+  become: yes
+  loop: "{{ ssh_users }}"
+
+- name: Ensure .ssh directory exists for ssh_users
+  file:
+    path: "/home/{{ item }}/.ssh"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: '0700'
+  loop: "{{ ssh_users }}"
+
+- name: Copy ssh keys for ssh_users
+  include_tasks: add_ssh_keys.yml
+  vars:
+    authorized_user: "{{ user }}"
+  loop_control:
+    loop_var: user
+  loop: "{{ ssh_users }}"
+
+- name: Create deploy user
+  user:
+    name: "{{ deploy_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+    state: present
+    create_home: yes
+
+- name: Install deployment cleanup script
+  when: inventory_hostname in groups['full-app']
+  copy:
+    dest: /usr/local/sbin/velox-cleanup-deployment
+    owner: root
+    group: root
+    mode: '0750'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      DEPLOY_USER="{{ deploy_user }}"
+      BASE="/home/${DEPLOY_USER}/deployments"
+      name="${1:-}"
+
+      if [[ ! "$name" =~ ^(pr-[0-9]+|[0-9]{14})$ ]]; then
+        echo "invalid deployment name" >&2
+        exit 2
+      fi
+
+      target="${BASE}/${name}"
+
+      if [ -d "$target" ]; then
+        rm -rf --one-file-system -- "$target"
+        echo "deleted"
+      else
+        echo "absent"
+      fi
+
+- name: Allow deploy user to run cleanup script as root
+  when: inventory_hostname in groups['full-app']
+  copy:
+    dest: "/etc/sudoers.d/{{ deploy_user }}-cleanup-deployment"
+    owner: root
+    group: root
+    mode: '0440'
+    content: "{{ deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/velox-cleanup-deployment\n"
+    validate: "/usr/sbin/visudo -cf %s"
+
+- name: Ensure direnv hook is present in .bashrc
+  lineinfile:
+    path: "/home/{{ deploy_user }}/.bashrc"
+    line: 'eval "$(direnv hook bash)"'
+    state: present
+    insertafter: EOF
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+
+- name: Copy deploy ssh keys
+  include_tasks: add_ssh_keys.yml
+  vars:
+    authorized_user: "{{ deploy_user }}"
+    user: "deploy"
+
+- name: Ensure .ssh directory exists for deploy_user
+  file:
+    path: "/home/{{ deploy_user }}/.ssh"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0700'
+
+- name: Disable SSH root login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+
+- name: Disable password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+
+- name: Ensure only key-based auth is used
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?ChallengeResponseAuthentication'
+    line: 'ChallengeResponseAuthentication no'
+
+- name: Allow sudo without password
+  lineinfile:
+    dest: /etc/sudoers
+    line: "{{ item }} ALL=(ALL) NOPASSWD:ALL"
+    validate: "/usr/sbin/visudo -cf %s"
+    state: present
+    regexp: "^{{ item }}\\s+ALL=\\(ALL\\) NOPASSWD:ALL$"
+    backup: yes
+  with_items: "{{ sudo_users }}"
+
+- name: Reload SSH
+  service:
+    name: ssh
+    state: reloaded

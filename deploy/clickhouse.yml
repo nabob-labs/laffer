@@ -1,0 +1,44 @@
+- hosts: clickhouse
+  remote_user: "{{ deploy_user }}"
+  collections:
+    - community.docker
+    - community.clickhouse
+  roles:
+    - clickhouse
+
+- hosts: clickhouse
+  remote_user: debian
+  become: true
+  gather_facts: false
+  vars_files:
+    - roles/clickhouse/defaults/main.yml
+  pre_tasks:
+    - ansible.builtin.import_tasks: tasks/load-debian-root-secrets.yml
+  tasks:
+    - name: Install systemd unit for clickhouse compose
+      template:
+        src: roles/clickhouse/templates/clickhouse-compose.service.j2
+        dest: /etc/systemd/system/clickhouse-compose.service
+        mode: '0644'
+      notify: Reload systemd
+
+    - name: Enable and start clickhouse-compose service
+      systemd:
+        name: clickhouse-compose.service
+        enabled: true
+        state: started
+
+    - name: Configure kernel parameters for memory optimization
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: 'vm.swappiness', value: '1' }
+        - { key: 'vm.vfs_cache_pressure', value: '50' }
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true

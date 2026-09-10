@@ -2,14 +2,14 @@
 
 Concrete implementation of the [`BlockSource`](../DESIGN.md#blocksource) trait
 for the V1 deployment: the archive runs on the same host as the
-dango node and reuses the data the node already persists.
+velox node and reuses the data the node already persists.
 
 > See [DESIGN.md](../DESIGN.md) for the shared contract (`BlockSource`,
 > `Projection`, app loop). This document covers only V1-specific concretions.
 
 ## Why this impl
 
-The dango node, through its in-process indexer (`indexer/sql/`,
+The velox node, through its in-process indexer (`indexer/sql/`,
 `indexer/clickhouse/`), already writes every finalized block to disk and
 exposes a GraphQL `full_block` subscription that streams each new block with its
 full payload. V1 piggy-backs on both — the subscription for the live tail, the
@@ -18,10 +18,10 @@ protocol.
 
 ## Inputs the source relies on
 
-1. **GraphQL `full_block` subscription** at `dango-httpd` — streams each newly
+1. **GraphQL `full_block` subscription** at `velox-httpd` — streams each newly
    indexed block as a complete `BlockData` (block + outcome) in one event. This
    is the live tail; the source reads nothing from disk to serve it.
-2. **Cache files on disk** — written by the node's `dango-indexer-cache` crate at:
+2. **Cache files on disk** — written by the node's `velox-indexer-cache` crate at:
 
    ```plain
    <dir>/blocks/<last-3-digits-of-height-reversed>/<height>.borsh[.xz]
@@ -33,16 +33,16 @@ protocol.
    the live tail. The archive drops `http_request_details` and keeps
    only `block` + `outcome` — the shape of `BlockData` (the node's `FullBlock`).
 
-Both inputs come from the same dango node process. If the node is down,
+Both inputs come from the same velox node process. If the node is down,
 both are down — single failure domain, no consistency issues to worry about.
 
 ## Live tail — the `full_block` subscription
 
-The live half of the source opens a WebSocket to `dango-httpd` and subscribes to
+The live half of the source opens a WebSocket to `velox-httpd` and subscribes to
 `full_block`. Each event carries the whole `BlockData`, so the source decodes it,
 advances the frontier, and broadcasts — **no disk read on the live path**. This
 is the _same_ `subscribe_full_blocks` call the `RemoteBlockSource` uses; only the
-base URL differs (in-process `dango-httpd` here, a remote sentinel there), so the
+base URL differs (in-process `velox-httpd` here, a remote sentinel there), so the
 two sources share one live-tail implementation (`HttpdClient`).
 
 Why a GraphQL subscription over polling or inotify:
@@ -116,7 +116,7 @@ no recovery here, since V1 has no healer.
 
 ### Why not query the indexer for the boot frontier
 
-An earlier design queried `dango-httpd` for the latest indexed height at boot.
+An earlier design queried `velox-httpd` for the latest indexed height at boot.
 With the `full_block` feed carrying the payload, that round-trip buys nothing:
 the first event delivers the height _and_ the block, so the source baselines and
 broadcasts in one step. Dropping the query also removes an implicit ordering
@@ -129,7 +129,7 @@ dependency on a separate GraphQL query field being wired up, and a class of
                   ┌──────────────────────────────────┐
                   │ LocalBlockSource                 │
                   │                                  │
-   dango-httpd ──→│  WS sub task (full_block):       │
+   velox-httpd ──→│  WS sub task (full_block):       │
    (full_block    │    recv BlockData                │
     subscription) │      → advance frontier          │
                   │      → broadcast Arc<BlockData>  │
@@ -152,19 +152,19 @@ broadcast sender.
 | Failure                                | Behavior                                                                                                                                                                                                                                       |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | WS connection drops                    | The source reconnects with backoff and resubscribes at the live tip; the heights produced during the outage are read from disk by the projection loop's `get` catch-up. The frontier stalls until the feed is back, then jumps to the new tip. |
-| `dango-httpd` down but node up         | Same as a WS drop — the source retries. Files on disk keep growing; the projections keep draining them via `get` regardless of the frontier, and the frontier catches up once the feed returns.                                                |
+| `velox-httpd` down but node up         | Same as a WS drop — the source retries. Files on disk keep growing; the projections keep draining them via `get` regardless of the frontier, and the frontier catches up once the feed returns.                                                |
 | Gap in the live feed (a dropped event) | A delivered height beyond `frontier + 1` advances the frontier straight to it and broadcasts; the skipped heights are pulled from disk via `get`, never replayed over the (small-ring) subscription.                                           |
 | Cache file missing for a `get(h)`      | Maps to `Ok(None)` — "not yet"; a projection that outran the node's on-disk writes retries.                                                                                                                                                    |
 | Cache file present but corrupt         | `CacheFile::load` returns a borsh error, bubbled up via `anyhow`. Operational decision (skip vs halt) deferred — TBD.                                                                                                                          |
 
-## Coupling with `dango-indexer-cache`
+## Coupling with `velox-indexer-cache`
 
 The source depends on the concrete shape of `CacheFile` and
-`BlockAndBlockOutcomeWithHttpDetails` in the `dango-indexer-cache` crate. Any
+`BlockAndBlockOutcomeWithHttpDetails` in the `velox-indexer-cache` crate. Any
 layout change in that crate is a breaking change for the archive.
 
 Since both crates live in the same monorepo, this is a compile-time
-invariant: a refactor in `dango-indexer-cache` either updates the source or
+invariant: a refactor in `velox-indexer-cache` either updates the source or
 fails to build.
 
 ## Open questions
@@ -175,6 +175,6 @@ fails to build.
   in V1 (the in-process indexer would also catch it) but needs a config knob.
 - Reconnection backoff is a fixed `RECONNECT_BACKOFF` (5 s) today; surfacing
   it as config is a later knob.
-- `dango-httpd` startup ordering: if the archive starts before
-  `dango-httpd` is reachable, the source should retry rather than fail
+- `velox-httpd` startup ordering: if the archive starts before
+  `velox-httpd` is reachable, the source should retry rather than fail
   hard. Standard pattern, but make sure it's exercised in tests.

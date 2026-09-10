@@ -1,4 +1,4 @@
-# Dango Core
+# Velox Core
 
 An execution environment for blockchains.
 

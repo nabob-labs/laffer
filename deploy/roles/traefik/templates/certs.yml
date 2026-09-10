@@ -1,0 +1,4 @@
+tls:
+  certificates:
+    - certFile: /letsencrypt/live/velox.zone/fullchain.pem
+      keyFile:  /letsencrypt/live/velox.zone/privkey.pem

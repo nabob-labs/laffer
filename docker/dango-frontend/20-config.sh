@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+csv_to_json_array() {
+  # Convert a comma-separated string into a JSON array of trimmed strings.
+  # Example: " points,foo ,, bar " -> ["points","foo","bar"]
+  printf '%s' "${1:-}" | awk -F',' '
+    BEGIN { printf "[" }
+    {
+      for (i = 1; i <= NF; i++) {
+        value = $i
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        if (value == "") continue
+        gsub(/\\/, "\\\\", value)
+        gsub(/"/, "\\\"", value)
+        if (count++) printf ","
+        printf "\"%s\"", value
+      }
+    }
+    END { printf "]" }
+  '
+}
+
+enabled_features_json="$(csv_to_json_array "${FRONTEND_ENABLED_FEATURES:-}")"
+
+CONFIG_FILE=/usr/share/nginx/html/config.js
+HTML_FILE=/usr/share/nginx/html/index.html
+
+if [ -n "${VELOX_CONFIG_JSON:-}" ]; then
+  printf '%s' "$VELOX_CONFIG_JSON" | jq -e . >/dev/null
+  cat > "$CONFIG_FILE" <<EOF
+window.velox=${VELOX_CONFIG_JSON};
+EOF
+else
+  cat > "$CONFIG_FILE" <<EOF
+window.velox={"chain":{"id":"${CHAIN_ID:-localvelox-1}","name":"Local","nativeCoin":"velox","url":"${INDEXER_URL:-http://localhost:8080}","blockExplorer":{"name":"Local Explorer","txPage":"/tx/\${txHash}","accountPage":"/account/\${address}","contractPage":"/contract/\${address}"}},"urls":{"faucetUrl":"${FAUCET_URL:-http://localhost:8082/mint}","upUrl":"${UP_URL:-http://localhost:8080/up}","pointsUrl":"${POINTS_URL:-http://localhost:8083/points-api}"},"banner":"${BANNER:-}","enabledFeatures":${enabled_features_json}};
+EOF
+fi
+
+# Cache-bust: update the config.js query hash in index.html
+CONFIG_HASH=$(md5sum "$CONFIG_FILE" | cut -c1-8)
+grep -Eq 'config\.js\?v=[a-f0-9]+' "$HTML_FILE"
+sed -i "s|config\.js?v=[a-f0-9]*|config.js?v=$CONFIG_HASH|g" "$HTML_FILE"
+grep -q "config.js?v=$CONFIG_HASH" "$HTML_FILE"

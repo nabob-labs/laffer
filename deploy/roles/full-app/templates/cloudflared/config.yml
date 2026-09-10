@@ -1,0 +1,22 @@
+protocol: quic
+edge-ip-version: auto
+ha-connections: 12
+transport-loglevel: warn
+
+originRequest:
+  connectTimeout: 2s
+  keepAliveTimeout: 5s
+  keepAliveConnections: 16
+
+ingress:
+  - hostname: api-pr-{{ github_pr_number }}-{{ hostname }}.{{ velox_domain }}
+    service: http://velox:8080
+  - hostname: faucet-pr-{{ github_pr_number }}-{{ hostname }}.{{ velox_domain }}
+    service: http://faucet-bot:8082
+  - hostname: graphiql-pr-{{ github_pr_number }}-{{ hostname }}.{{ velox_domain }}
+    service: http://graphiql:80
+{% if inventory_hostname in (groups['perp-liquidator-' ~ velox_network] | default(groups['perp-liquidator-devnet'] | default([]))) %}
+  - hostname: liquidator-pr-{{ github_pr_number }}-{{ hostname }}.{{ velox_domain }}
+    service: http://perp-liquidator:9310
+{% endif %}
+  - service: http_status:404

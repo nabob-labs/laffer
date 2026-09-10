@@ -21,4 +21,4 @@ Currently, there is no formal link between the specifications and the Rust imple
 - Invariants are described in [invariants.md](./docs/invariants.md) document
 - Results from experiments, including simulation, testing and model checking, are in [simulation_and_model_checking.md](./docs/simulation_and_model_checking.md)
 
-A single issue was found during the specification and simulation process, and it was already fixed: https://github.com/left-curve/left-curve/pull/291
+A single issue was found during the specification and simulation process, and it was already fixed: https://github.com/nabob-labs/laffer/pull/291

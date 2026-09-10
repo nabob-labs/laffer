@@ -1,0 +1,76 @@
+- set_fact:
+    cometbft_rpc_port: "{{ traefik[velox_network].ports.cometbft_rpc_port }}"
+  when: traefik_enabled
+
+- debug:
+    msg: "Fetching http://{{ wireguard_ip }}:{{ cometbft_rpc_port }}/status"
+
+- name: Wait for CometBFT to sync
+  uri:
+    url: "http://{{ wireguard_ip }}:{{ cometbft_rpc_port }}/status"
+    return_content: yes
+  register: cometbft_status
+  until: not (cometbft_status.json.result.sync_info.catching_up | default(true))
+  retries: 30
+  delay: 10
+
+- name: Resolve minimum peer count for the assertion below
+  set_fact:
+    cometbft_min_peers: "{{ cometbft_min_peers_override | default(expected_peer_count | default(0)) }}"
+
+- name: Check peer connections
+  uri:
+    url: "http://{{ wireguard_ip }}:{{ cometbft_rpc_port }}/net_info"
+    return_content: yes
+  register: cometbft_net_info
+  until: cometbft_net_info is defined and cometbft_net_info.json is defined and cometbft_net_info.json.result.n_peers | int >= cometbft_min_peers | int
+  retries: 30
+  delay: 10
+  failed_when: false  # Don't fail on timeout, let assert handle it
+
+- name: Display sync info
+  debug:
+    msg: |
+      Node: {{ inventory_hostname }}
+      Catching up: {{ (cometbft_status.json.result.sync_info.catching_up | default(true)) }}
+      Latest block height: {{ cometbft_status.json.result.sync_info.latest_block_height }}
+      Latest block time: {{ cometbft_status.json.result.sync_info.latest_block_time }}
+      Connected peers: {{ cometbft_net_info.json.result.n_peers }}
+
+- name: Ensure CometBFT has at least the expected peer connections
+  assert:
+    that:
+      - cometbft_net_info.json.result.n_peers | int >= cometbft_min_peers | int
+    fail_msg: >-
+      {{ inventory_hostname }} has only
+      {{ cometbft_net_info.json.result.n_peers }} peers,
+      expected at least {{ cometbft_min_peers }}.
+    success_msg: >-
+      {{ inventory_hostname }} connected to {{ cometbft_net_info.json.result.n_peers }} peers (>= {{ cometbft_min_peers }} required).
+
+- name: Wait until service reports is_running=true
+  ansible.builtin.uri:
+    url: "{{ indexer_url }}/up"
+    method: GET
+    return_content: yes
+    status_code: 200
+  register: velox_up
+  retries: 6
+  delay: 5
+  until: (velox_up.json.is_running | default(false)) | bool
+
+- name: Show health snapshot
+  ansible.builtin.debug:
+    msg: |
+      is_running: {{ velox_up.json.is_running }}
+      height: {{ velox_up.json.block.height }}
+      indexed: {{ velox_up.json.indexed_block_height }}
+      git: {{ velox_up.json.git_commit }}
+
+- name: Assert indexing lag ≤ 3 blocks
+  ansible.builtin.assert:
+    that:
+      - (velox_up.json.block.height | int) - (velox_up.json.indexed_block_height | int) <= 3
+    fail_msg: >-
+      Index lag too high: height={{ velox_up.json.block.height }},
+      indexed={{ velox_up.json.indexed_block_height }}

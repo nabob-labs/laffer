@@ -1,0 +1,33 @@
+protocol: quic
+edge-ip-version: auto
+ha-connections: 12
+transport-loglevel: warn
+
+originRequest:
+  connectTimeout: 2s
+  keepAliveTimeout: 5s
+  keepAliveConnections: 16
+
+ingress:
+{% for velox_network in velox_networks %}
+  - hostname: api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}
+    service: http://traefik
+  - hostname: graphiql-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}
+    service: http://traefik
+  - hostname: faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}
+    service: http://traefik
+# for devnet, we use a CNAME to the host without using a LB
+  - hostname: api-{{ velox_network }}.{{ velox_domain }}
+    service: http://traefik
+  - hostname: graphiql-{{ velox_network }}.{{ velox_domain }}
+    service: http://traefik
+  - hostname: faucet-{{ velox_network }}.{{ velox_domain }}
+    service: http://traefik
+  - hostname: points-{{ velox_network }}.{{ velox_domain }}
+    service: http://traefik
+{% endfor %}
+{% for instance in archive_public_instances | default([]) %}
+  - hostname: api-archive-{{ instance.name }}-{{ hostname }}.{{ velox_domain }}
+    service: http://traefik
+{% endfor %}
+  - service: http_status:404

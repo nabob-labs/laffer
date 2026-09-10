@@ -465,7 +465,7 @@ async fn index_perps_candles_full_timeline() -> anyhow::Result<()> {
 
     // 30 fills with varying prices in the $1990–$2020 range.
     // Capped at 14 due to a deadlock in the block processing pipeline.
-    // See: https://github.com/left-curve/left-curve/issues/1635
+    // See: https://github.com/nabob-labs/laffer/issues/1635
     const NUM_FILLS: usize = 14;
     let offsets: [i128; 10] = [-10, 5, -5, 10, -3, 8, -8, 3, -1, 7];
     let prices: Vec<u128> = (0..NUM_FILLS)

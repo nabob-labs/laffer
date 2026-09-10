@@ -1,0 +1,96 @@
+- set_fact:
+    indexer_url: "https://api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}"
+    faucet_url: "https://faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/mint"
+    up_url: "https://api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/up"
+    points_url: "https://points-{{ velox_network }}.{{ velox_domain }}"
+  when: not traefik_enabled
+
+- set_fact:
+    indexer_url: "https://api-{{ velox_network }}.{{ velox_domain }}"
+    faucet_url: "https://faucet-{{ velox_network }}.{{ velox_domain }}/mint"
+    up_url: "https://api-{{ velox_network }}.{{ velox_domain }}/up"
+    points_url: "https://points-{{ velox_network }}.{{ velox_domain }}"
+  when: traefik_enabled
+
+- file:
+    path: "{{ item }}"
+    state: directory
+  loop: ["{{ deployment_dir }}"]
+
+- file:
+    path: "{{ item }}"
+    state: directory
+  loop: ["{{ deployment_dir }}/cloudflared"]
+  when: cloudflare_tunnel_enabled
+
+- name: Deploy configuration files
+  block:
+    - template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode | default('0600') }}"
+      loop:
+        - { src: "config/cometbft/config.toml.j2", dest: "{{ cometbft_directory }}/config/config.toml" }
+        - { src: "config/velox/app.toml", dest: "{{ velox_directory }}/config/app.toml" }
+        - { src: "docker-compose.yml", dest: "{{ deployment_dir }}/docker-compose.yml" }
+        - { src: "envrc.j2", dest: "{{ deployment_dir }}/.envrc" }
+        - { src: "Makefile", dest: "{{ deployment_dir }}/Makefile", mode: "0644" }
+
+    # These templates render secrets (CometBFT private keys, database
+    # passwords, API tokens). They are deployed in a separate task with
+    # `no_log` so the rendered contents never reach ansible output or the
+    # tee'd logs under `deploy/logs/` — in particular via `--diff` mode,
+    # which would otherwise print the full file contents on any change.
+    # Don't merge them back into the loop above.
+    - name: Deploy secret configuration files
+      template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "0600"
+      loop:
+        - { src: "config/cometbft/node_key.json", dest: "{{ cometbft_directory }}/config/node_key.json" }
+        - { src: "config/cometbft/priv_validator_key.json", dest: "{{ cometbft_directory }}/config/priv_validator_key.json" }
+        - { src: "env.j2", dest: "{{ deployment_dir }}/.env" }
+      no_log: true
+
+- name: Check if network-specific genesis exists
+  stat:
+    path: "{{ role_path }}/templates/config/cometbft/genesis-{{ velox_network }}.json"
+  register: network_genesis
+  delegate_to: localhost
+  become: false
+
+- name: Copy network-specific genesis if it exists
+  template:
+    src: "config/cometbft/genesis-{{ velox_network }}.json"
+    dest: "{{ cometbft_directory }}/config/genesis.json"
+    mode: "0600"
+  when: network_genesis.stat.exists
+
+- name: Copy default genesis
+  template:
+    src: "config/cometbft/genesis.json"
+    dest: "{{ cometbft_directory }}/config/genesis.json"
+    mode: "0600"
+  when: not network_genesis.stat.exists
+
+- name: Deploy Cloudflare configuration files
+  block:
+    - template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode | default('0600') }}"
+      loop:
+        - { src: "cloudflared/config.yml", dest: "{{ deployment_dir }}/cloudflared/config.yml", mode: "0644" }
+  when: cloudflare_tunnel_enabled
+
+- name: Deploy Clickhouse configuration files
+  block:
+    - template:
+        src: "{{ item.src }}"
+        dest: "{{ deployment_dir }}/{{ item.dest }}"
+      loop:
+        - { src: "clickhouse/config.xml", dest: "clickhouse/config.xml" }
+        - { src: "clickhouse/users.xml", dest: "clickhouse/users.xml" }
+        - { src: "clickhouse/init.sh", dest: "clickhouse/init.sh" }
+      when: deploy_includes_clickhouse

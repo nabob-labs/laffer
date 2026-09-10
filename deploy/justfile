@@ -1,0 +1,720 @@
+set positional-arguments
+
+# Use bash so `pipefail` propagates ansible's exit code through `| tee ...`
+# (the default `sh -cu` would silently swallow ansible failures behind tee).
+set shell := ["bash", "-uo", "pipefail", "-c"]
+
+# Always load deploy/ansible.cfg, regardless of cwd or a stray ~/.ansible.cfg.
+export ANSIBLE_CONFIG := justfile_directory() + "/ansible.cfg"
+
+# Tailscale IPs for each host. Names match deploy/inventory.
+ovh1     := "100.96.253.40"
+ovh2     := "100.107.248.71"
+ovh3     := "100.122.37.57"
+hetzner1 := "100.126.8.2"
+hetzner2 := "100.90.163.19"
+hetzner3 := "100.76.197.30"
+hetzner4 := "100.109.200.70"
+hetzner5 := "100.72.62.100"
+hetzner6 := "100.66.152.68"
+
+# List available recipes
+default:
+  @just --list
+
+# ----------------------------------- Setup ------------------------------------
+
+# Sync the project venv and install Ansible Galaxy collections/roles.
+setup:
+  uv sync
+  uv run ansible-galaxy install -r requirements.yml
+
+# Lint all YAML files (playbooks, roles, templates), excluding vaults
+lint:
+  find . -name '*.yml' -o -name '*.yaml' | grep -v vault | grep -v .venv | xargs uvx yamllint -d relaxed
+
+add-deploy-key:
+  uv run ./scripts/deploy-key.sh | ssh-add - >/dev/null
+  @echo "Deploy key added to ssh-agent. You can now run ansible-playbook normally."
+
+add-debian-key:
+  uv run ./scripts/debian-key.sh | ssh-add - >/dev/null
+  @echo "debian key added to ssh-agent. You can now run ansible-playbook normally."
+
+# ---------------------------------- Secrets -----------------------------------
+
+sops-check:
+  ./scripts/sops-install-check.sh
+
+sops-audit:
+  ./scripts/sops-audit.sh
+
+sops-reencrypt *FILES:
+  ./scripts/sops-reencrypt.sh {{FILES}}
+
+sops-collect-recipient *ARGS:
+  ./scripts/sops-collect-recipient.sh {{ARGS}}
+
+sops-edit-secrets:
+  sops edit group_vars/all/vault.sops.json
+
+sops-edit-deploy-key:
+  sops edit --input-type binary --output-type binary vaults/deploy/deploy_key.sops
+
+sops-edit-hyperlane-secrets:
+  sops edit group_vars/hyperlane/vault.sops.json
+
+sops-edit-points-bot-secrets:
+  sops edit group_vars/points-bot/vault.sops.json
+
+sops-edit-perps-bot-secrets:
+  sops edit group_vars/perps-bot/vault.sops.json
+
+sops-edit-velox-assistant-secrets:
+  sops edit group_vars/velox-assistant/vault.sops.json
+
+sops-edit-archive-secrets:
+  sops edit group_vars/archive/vault.sops.json
+
+sops-edit-ovh1-host-secrets:
+  sops edit host_vars/100.96.253.40/vault.sops.json
+
+sops-edit-ovh2-host-secrets:
+  sops edit host_vars/100.107.248.71/vault.sops.json
+
+sops-edit-ovh3-host-secrets:
+  sops edit host_vars/100.122.37.57/main.sops.json
+
+sops-edit-root-key:
+  sops edit --input-type binary --output-type binary vaults/debian/debian_key.sops
+
+sops-edit-root-secrets:
+  sops edit vaults/debian/root_vault.sops.json
+
+# -------------------------------- Provisioning --------------------------------
+
+cold-provision:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook playbook.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-cold-provision.log"
+
+provision:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook playbook.yml \
+      --skip-tags setup \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-provision.log"
+
+# Apply the users role (create accounts, sync SSH authorized_keys) on all servers
+provision-users:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook users.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-provision-users.log"
+
+# ---------------------------------- Devnet ------------------------------------
+
+deploy-devnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook full-app.yml \
+      -e '{"traefik_enabled": true, "cometbft_generate_keys": true, "perps_bot_enabled": true, "github_deployments_enabled": false, "expose_ports": false, "delete_postgres_database_at_merge": false, "delete_clickhouse_database_at_merge": false, "deploy_includes_postgres": false, "deploy_includes_clickhouse": false, "velox_network": "devnet", "deploy_env": "production", "chain_id": "dev-9", "velox_image_tag": "latest", "system_wide_directories": true}' \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-devnet.log"
+
+reset-and-deploy-devnet:
+  just stop-devnet
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook full-app.yml \
+      -e '{"traefik_enabled": true, "cometbft_generate_keys": true, "perps_bot_enabled": true, "github_deployments_enabled": false, "expose_ports": false, "delete_postgres_database_at_merge": false, "delete_clickhouse_database_at_merge": false, "deploy_includes_postgres": false, "deploy_includes_clickhouse": false, "velox_network": "devnet", "deploy_env": "production", "chain_id": "dev-9", "velox_image_tag": "latest", "system_wide_directories": true, "reset_data": true}' \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-reset-and-deploy-devnet.log"
+
+stop-devnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-services.yml \
+      -e velox_network=devnet \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-devnet.log"
+
+# Delete the devnet deployment entirely (docker compose down, remove dir, prune).
+# Fetches the current deployment name from ~/deployments/devnet.json on ovh1.
+# Usage: just delete-devnet
+delete-devnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && TIMESTAMP=$(ssh deploy@{{ovh1}} 'jq -r .current_deployment /home/deploy/deployments/devnet.json') \
+    && test -n "$TIMESTAMP" \
+    && test "$TIMESTAMP" != "null" \
+    && echo "Deleting devnet deployment: $TIMESTAMP" \
+    && uv run ansible-playbook delete-full-app.yml \
+      -e deployment_name="$TIMESTAMP" \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-delete-devnet.log"
+
+restart-devnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook restart-services.yml \
+      -e velox_network=devnet \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-restart-devnet.log"
+
+remove-deploy-lock-devnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook remove-deploy-locks.yml \
+      -e velox_network=devnet \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-remove-deploy-lock-devnet.log"
+
+# ---------------------------------- Points ------------------------------------
+
+deploy-points-bot network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook points-bot.yml \
+      -e '{"points_bot_networks": ["{{network}}"], "points_bot_tag": "{{tag}}"}' \
+      --limit points-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-points-bot.log"
+
+stop-points-bot network:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-points-bot.yml \
+      -e '{"points_bot_networks": ["{{network}}"]}' \
+      --limit points-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-points-bot.log"
+
+drop-app-db-points-bot network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook drop-db-points-bot.yml \
+      -e '{"points_bot_networks": ["{{network}}"], "points_bot_tag": "{{tag}}"}' \
+      --limit points-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-drop-app-db-points-bot.log"
+
+drop-app-db-full-points-bot network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook drop-db-points-bot.yml \
+      -e '{"points_bot_networks": ["{{network}}"], "drop_db_full": true, "points_bot_tag": "{{tag}}"}' \
+      --limit points-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-drop-app-db-full-points-bot.log"
+
+drop-httpd-db-points-bot network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook drop-db-points-bot.yml \
+      -e '{"points_bot_networks": ["{{network}}"], "drop_db_target": "httpd", "points_bot_tag": "{{tag}}"}' \
+      --limit points-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-drop-httpd-db-points-bot.log"
+
+drop-all-dbs-points-bot network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook drop-db-points-bot.yml \
+      -e '{"points_bot_networks": ["{{network}}"], "drop_db_target": "all", "points_bot_tag": "{{tag}}"}' \
+      --limit points-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-drop-all-dbs-points-bot.log"
+
+# ----------------------------- Referral Dashboard -----------------------------
+
+# Deploy referral-dashboard for a network on a specific server.
+# `server` is the tailscale IP (or any inventory host pattern within the
+# referral-dashboard group) — pin to a single host so you can test on devnet
+# before mainnet.
+# Usage: just deploy-referral-dashboard devnet 100.107.248.71
+#        just deploy-referral-dashboard testnet 100.109.200.70 v1.2.3
+#        just deploy-referral-dashboard mainnet 100.76.197.30
+deploy-referral-dashboard network server tag="latest":
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook referral-dashboard.yml \
+      -e '{"referral_dashboard_networks": ["{{network}}"], "referral_dashboard_tag": "{{tag}}"}' \
+      --limit {{server}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-referral-dashboard.log
+
+stop-referral-dashboard network server:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook stop-referral-dashboard.yml \
+      -e '{"referral_dashboard_networks": ["{{network}}"]}' \
+      --limit {{server}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-referral-dashboard.log
+
+# Drop and recreate the referral-dashboard postgres database (full reindex on next deploy).
+drop-db-referral-dashboard network server:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook drop-db-referral-dashboard.yml \
+      -e '{"referral_dashboard_networks": ["{{network}}"]}' \
+      --limit {{server}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-drop-db-referral-dashboard.log
+
+
+# ---------------------------- Archive -----------------------------
+
+deploy-archive-mainnet tag="latest":
+  just deploy-archive mainnet {{tag}}
+
+deploy-archive-testnet tag="latest":
+  just deploy-archive testnet {{tag}}
+
+# Deploy a network's archive instance(s), as configured in the host_vars
+# (`archive_instances`) of the hosts in the [archive-<network>] inventory
+# group.
+# Usage: just deploy-archive mainnet
+#        just deploy-archive testnet v1.2.3
+deploy-archive network tag="latest":
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook archive.yml \
+      -e archive_tag={{tag}} \
+      --limit archive-{{network}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-archive.log
+
+# Bootstrap public exposure for an archive network. Run this the first time a
+# host is exposed publicly, or after changing Traefik/Cloudflare routing. Normal
+# image deploys should use `deploy-archive`.
+setup-archive-public network tag="latest":
+  mkdir -p {{justfile_directory()}}/logs \
+    && { \
+      uv run ansible-playbook traefik.yml --limit archive-{{network}} \
+      && uv run ansible-playbook archive.yml -e archive_tag={{tag}} --limit archive-{{network}} \
+      && uv run ansible-playbook cloudflared.yml --limit archive-{{network}}; \
+    } 2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-setup-archive-public.log
+
+# Reconcile the shared Traefik stack/static config for archive hosts.
+update-archive-traefik network:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook traefik.yml \
+      --limit archive-{{network}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-update-archive-traefik.log
+
+# Reconcile Cloudflared, archive DNS records, and archive Cloudflare LB state.
+update-archive-cloudflare network:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook cloudflared.yml \
+      --limit archive-{{network}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-update-archive-cloudflare.log
+
+stop-archive network:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook stop-archive.yml \
+      --limit archive-{{network}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-archive.log
+
+# Drop and recreate the projection database(s) — full reindex on next deploy;
+# the RocksDB block store is preserved.
+drop-db-archive network:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook drop-db-archive.yml \
+      --limit archive-{{network}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-drop-db-archive.log
+
+
+# -------------------------------- Perps Bot ----------------------------------
+
+deploy-perps-bot tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook perps-bot.yml \
+      -e perps_bot_tag={{tag}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-perps-bot.log"
+
+stop-perps-bot:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-perps-bot.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-perps-bot.log"
+
+# ---------------------------- Batch Block Backup -----------------------------
+
+# Deploy the batch-block-backup bot for a network. testnet runs on hetzner2,
+# mainnet on hetzner1 (the full-app node hosts, so the blocks/ dir is on local
+# disk). Pass comma-separated heights as the third argument to rebuild and
+# re-upload their batches once at startup (redeploy without it afterwards, or
+# the rebuild re-runs on every container restart).
+# Usage: just deploy-batch-block-backup testnet
+#        just deploy-batch-block-backup mainnet v1.2.3
+#        just deploy-batch-block-backup testnet latest 200,300
+deploy-batch-block-backup network tag="latest" reupload_heights="":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook batch-block-backup.yml \
+      -e '{"batch_block_backup_networks": ["{{network}}"], "batch_block_backup_tag": "{{tag}}", "batch_block_backup_reupload_heights": {"{{network}}": "{{reupload_heights}}"}}' \
+      --limit batch-block-backup-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-batch-block-backup.log"
+
+stop-batch-block-backup network:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-batch-block-backup.yml \
+      -e '{"batch_block_backup_networks": ["{{network}}"]}' \
+      --limit batch-block-backup-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-batch-block-backup.log"
+
+# ------------------------------ Block Cleanup ---------------------------------
+
+# One-shot: delete an inclusive block height range from a node's local blocks/
+# dir, then exit. Make sure the range is already archived in the
+# velox-<network>-batches bucket before running! The playbook waits for the bot
+# to finish, prints its logs, and fails if it exited non-zero.
+# Usage: just block-cleanup mainnet hetzner1 1 1000000
+#        just block-cleanup testnet hetzner2 1 500000 latest true   # dry run
+block-cleanup network server start_height end_height tag="latest" dry_run="false":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook block-cleanup.yml \
+      -e '{"network": "{{network}}", "block_cleanup_start_height": {{start_height}}, "block_cleanup_end_height": {{end_height}}, "block_cleanup_tag": "{{tag}}", "block_cleanup_dry_run": "{{dry_run}}"}' \
+      --limit {{server}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-block-cleanup.log"
+
+# ----------------------------- Velox Assistant --------------------------------
+
+deploy-velox-assistant tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook velox-assistant.yml \
+      -e velox_assistant_tag={{tag}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-velox-assistant.log"
+
+stop-velox-assistant:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-velox-assistant.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-velox-assistant.log"
+
+# ------------------------------ Perp Liquidator -------------------------------
+
+# Redeploy only the perp-liquidator container (pull new image, recreate)
+# Usage: just deploy-perp-liquidator devnet
+#        just deploy-perp-liquidator testnet v1.2.3
+deploy-perp-liquidator network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook redeploy-perp-liquidator.yml \
+      -e velox_network={{network}} \
+      -e perp_liquidator_tag={{tag}} \
+      --limit perp-liquidator-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-perp-liquidator.log"
+
+# Restart the perp-liquidator container without pulling a new image
+# Usage: just restart-perp-liquidator devnet
+#        just restart-perp-liquidator testnet
+restart-perp-liquidator network:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook restart-perp-liquidator.yml \
+      -e velox_network={{network}} \
+      --limit perp-liquidator-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-restart-perp-liquidator.log"
+
+# ---------------------------- Withdrawal approver -----------------------------
+
+# Redeploy only the withdrawal-approver container inside the current
+# deployment: re-render config/.env (key rotation), bump the tag, recreate.
+# The tag is mandatory: the guardian must always run a pinned image.
+# Usage: just deploy-withdrawal-approver testnet <bots-tag>
+deploy-withdrawal-approver network tag:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook redeploy-withdrawal-approver.yml \
+      -e velox_network={{network}} \
+      -e withdrawal_approver_tag={{tag}} \
+      --limit withdrawal-approver-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-withdrawal-approver.log"
+
+# ------------------------------- Monitor Bot ----------------------------------
+
+# Deploy the monitor bot for a network. All instances run on ovh3 (the
+# monitoring host), separated from the nodes they watch. The Discord webhook
+# it alerts through comes from `monitor_bot_discord_webhook` in the vault.
+# Usage: just deploy-monitor-bot mainnet
+#        just deploy-monitor-bot mainnet v0.28.0
+deploy-monitor-bot network tag="latest":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook monitor-bot.yml \
+      -e '{"monitor_bot_networks": ["{{network}}"], "monitor_bot_tag": "{{tag}}"}' \
+      --limit monitor-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-monitor-bot.log"
+
+stop-monitor-bot network:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-monitor-bot.yml \
+      -e '{"monitor_bot_networks": ["{{network}}"]}' \
+      --limit monitor-bot-{{network}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-monitor-bot.log"
+
+# ---------------------------------- Testnet -----------------------------------
+
+deploy-testnet velox_image_tag bots_image_tag:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook full-app.yml \
+      -e '{"traefik_enabled": true, "cometbft_generate_keys": true, "perps_bot_enabled": true, "github_deployments_enabled": false, "expose_ports": false, "delete_postgres_database_at_merge": false, "delete_clickhouse_database_at_merge": false, "deploy_includes_postgres": false, "deploy_includes_clickhouse": false, "chain_id": "velox-testnet-1", "velox_network": "testnet", "system_wide_directories": true, "deploy_env": "production"}' \
+      -e velox_image_tag={{velox_image_tag}} \
+      -e faucet_bot_tag={{bots_image_tag}} \
+      -e perps_bot_tag={{bots_image_tag}} \
+      -e perp_liquidator_tag={{bots_image_tag}} \
+      -e withdrawal_approver_tag={{bots_image_tag}} \
+      --limit {{hetzner2}},{{hetzner4}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-testnet.log"
+
+# Note: the `reset-and-deploy-testnet` command has been deleted.
+# We don't ever want to reset testnet since we want to keep it updated to ensure everything works
+# before updating mainnet.
+
+stop-testnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-services.yml \
+      -e velox_network=testnet \
+      --limit {{hetzner2}},{{hetzner4}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-testnet.log"
+
+restart-testnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook restart-services.yml \
+      -e velox_network=testnet \
+      --limit {{hetzner2}},{{hetzner4}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-restart-testnet.log"
+
+remove-deploy-lock-testnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook remove-deploy-locks.yml \
+      -e velox_network=testnet \
+      --limit {{hetzner2}},{{hetzner4}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-remove-deploy-lock-testnet.log"
+
+# Pull testnet docker images on every host without restarting anything.
+# Layers already present locally are not re-downloaded, so this is cheap to
+# re-run and safe to use as a warm-up before `deploy-testnet`.
+pull-docker-images-testnet velox_image_tag bots_image_tag:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook pull-docker-images.yml \
+      -e velox_network=testnet \
+      -e velox_image_tag={{velox_image_tag}} \
+      -e faucet_bot_tag={{bots_image_tag}} \
+      -e perps_bot_tag={{bots_image_tag}} \
+      -e perp_liquidator_tag={{bots_image_tag}} \
+      -e withdrawal_approver_tag={{bots_image_tag}} \
+      --limit {{hetzner2}},{{hetzner4}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-pull-docker-images-testnet.log"
+
+# ---------------------------------- Mainnet -----------------------------------
+
+# Note: the `reset-and-deploy-mainnet` command has been deleted.
+# We don't ever want to reset mainnet. Deleting the command so we don't do it by mistake.
+
+deploy-mainnet velox_image_tag bots_image_tag:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook full-app.yml \
+      -e '{"traefik_enabled": true, "cometbft_generate_keys": true, "github_deployments_enabled": false, "expose_ports": false, "delete_postgres_database_at_merge": false, "delete_clickhouse_database_at_merge": false, "deploy_includes_postgres": false, "deploy_includes_clickhouse": false, "chain_id": "velox-1", "velox_network": "mainnet", "system_wide_directories": true, "deploy_env": "production"}' \
+      -e velox_image_tag={{velox_image_tag}} \
+      -e faucet_bot_tag={{bots_image_tag}} \
+      -e perps_bot_tag={{bots_image_tag}} \
+      -e perp_liquidator_tag={{bots_image_tag}} \
+      -e withdrawal_approver_tag={{bots_image_tag}} \
+      --limit {{hetzner5}},{{hetzner6}},{{hetzner1}},{{hetzner3}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-mainnet.log"
+
+stop-mainnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook stop-services.yml \
+      -e velox_network=mainnet \
+      --limit {{hetzner5}},{{hetzner6}},{{hetzner1}},{{hetzner3}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-mainnet.log"
+
+restart-mainnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook restart-services.yml \
+      -e velox_network=mainnet \
+      --limit {{hetzner5}},{{hetzner6}},{{hetzner1}},{{hetzner3}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-restart-mainnet.log"
+
+remove-deploy-lock-mainnet:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook remove-deploy-locks.yml \
+      -e velox_network=mainnet \
+      --limit {{hetzner5}},{{hetzner6}},{{hetzner1}},{{hetzner3}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-remove-deploy-lock-mainnet.log"
+
+# Pull mainnet docker images on every host without restarting anything.
+# Layers already present locally are not re-downloaded, so this is cheap to
+# re-run and safe to use as a warm-up before `deploy-mainnet`.
+pull-docker-images-mainnet velox_image_tag bots_image_tag:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook pull-docker-images.yml \
+      -e velox_network=mainnet \
+      -e velox_image_tag={{velox_image_tag}} \
+      -e faucet_bot_tag={{bots_image_tag}} \
+      -e perps_bot_tag={{bots_image_tag}} \
+      -e perp_liquidator_tag={{bots_image_tag}} \
+      -e withdrawal_approver_tag={{bots_image_tag}} \
+      --limit {{hetzner5}},{{hetzner6}},{{hetzner1}},{{hetzner3}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-pull-docker-images-mainnet.log"
+
+# ---------------------------------- Preview -----------------------------------
+
+deploy-preview-latest:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook full-app.yml \
+      -e '{"expose_ports": true, "perps_bot_enabled": true, "faucet_bot_enabled": true, "cometbft_generate_keys":true}' \
+      -e deploy_env=preview \
+      -e velox_image_tag=latest \
+      -e velox_network=previewnet \
+      -e chain_id=preview \
+      --limit {{ovh1}},{{ovh2}},{{ovh3}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-preview-latest.log"
+
+# List all PR deployments with age on ovh1 and ovh2
+list-pr-deploys:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook list-pr-deploys.yml \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-list-pr-deploys.log
+
+# Delete the deploy of a specific PR
+delete-pr number:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook delete-full-app.yml \
+      -e deployment_name=pr-{{number}} \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-delete-pr.log
+
+# Delete a specific devnet deploy by timestamp (e.g. just delete-devnet-deploy 20260122064234)
+delete-devnet-deploy timestamp:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook delete-old-devnet-deploys.yml \
+      -e deployment_name={{timestamp}} \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-delete-devnet-deploy.log
+
+# Delete a specific devnet deploy AND its data directory under ~/devnet/<timestamp>
+delete-devnet-deploy-with-data timestamp:
+  mkdir -p {{justfile_directory()}}/logs \
+    && uv run ansible-playbook delete-old-devnet-deploys.yml \
+      -e deployment_name={{timestamp}} \
+      -e remove_devnet_data=true \
+      --limit {{ovh1}},{{ovh2}} \
+      2>&1 | tee {{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-delete-devnet-deploy-with-data.log
+
+# --------------------------------- Hyperlane ----------------------------------
+
+# Deploy Hyperlane agent locally
+# Usage: just hyperlane-local testnet relayer
+#        just hyperlane-local testnet validator 1
+# Valid values:
+#   network: testnet, mainnet
+#   agent: relayer, validator
+#   index: required for validator (e.g. "1", "2"), optional for relayer
+deploy-hyperlane network agent limit index="":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook -i inventory hyperlane.yml \
+      -e hyperlane_agents_network={{network}} \
+      -e hyperlane_agent_type={{agent}} \
+      -e hyperlane_validator_index={{index}} \
+      --limit {{limit}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-hyperlane.log"
+
+deploy-hyperlane-mainnet:
+  just deploy-hyperlane mainnet validator {{hetzner5}} 1
+  just deploy-hyperlane mainnet validator {{hetzner6}} 2
+  just deploy-hyperlane mainnet validator {{hetzner1}} 3
+  just deploy-hyperlane mainnet validator {{hetzner3}} 4
+  just deploy-hyperlane mainnet relayer {{hetzner3}}
+
+deploy-hyperlane-relayer-mainnet:
+  just deploy-hyperlane mainnet relayer {{hetzner3}}
+
+deploy-hyperlane-testnet:
+  just deploy-hyperlane testnet validator {{hetzner2}} 1
+  just deploy-hyperlane testnet validator {{hetzner4}} 2
+  just deploy-hyperlane testnet relayer {{hetzner4}}
+
+# Stop a single Hyperlane instance
+# Usage: just stop-hyperlane mainnet validator 100.72.62.100 1
+#        just stop-hyperlane testnet relayer 100.109.200.70
+stop-hyperlane network agent limit index="":
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook -i inventory stop-hyperlane.yml \
+      -e hyperlane_agents_network={{network}} \
+      -e hyperlane_agent_type={{agent}} \
+      -e hyperlane_validator_index={{index}} \
+      --limit {{limit}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-stop-hyperlane.log"
+
+stop-hyperlane-mainnet-validators:
+  just stop-hyperlane mainnet validator {{hetzner5}} 1
+  just stop-hyperlane mainnet validator {{hetzner6}} 2
+  just stop-hyperlane mainnet validator {{hetzner1}} 3
+  just stop-hyperlane mainnet validator {{hetzner3}} 4
+
+stop-hyperlane-testnet-validators:
+  just stop-hyperlane testnet validator {{hetzner2}} 1
+  just stop-hyperlane testnet validator {{hetzner4}} 2
+
+# Start only the velox container (httpd + indexer) without CometBFT.
+# Useful for querying blocks/state when the chain can't run.
+# Usage: just start-velox-httpd mainnet <IP>
+start-velox-httpd network limit:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook start-velox-httpd.yml \
+      -e velox_network={{network}} \
+      --limit {{limit}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-start-velox-httpd.log"
+
+# Print validator address from AWS KMS (cast)
+# Usage: just hyperlane-kms-address testnet 1
+hyperlane-kms-address network index:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook hyperlane-kms-address.yml \
+      -e hyperlane_agents_network={{network}} \
+      -e hyperlane_validator_index={{index}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-hyperlane-kms-address.log"
+
+# ----------------------------- Traefik Routes --------------------------------
+
+# Update Traefik routing config without a full deploy
+# Usage: just update-traefik-routes mainnet 100.76.197.30
+update-traefik-routes network limit:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook update-traefik-routes.yml \
+      -e velox_network={{network}} \
+      --limit {{limit}} \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-update-traefik-routes.log"
+
+# ------------------------------- Infrastructure -------------------------------
+
+deploy-github-runners:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook setup-github-runner-hosts.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-github-runners.log"
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook install-github-runner-hosts.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-github-runners.log"
+
+deploy-dozzle:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook dozzle.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-dozzle.log"
+
+deploy-monitoring:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook monitoring.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-monitoring.log"
+
+deploy-uptimekuma:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook uptimekuma-deploy.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-uptimekuma.log"
+
+deploy-tailscale:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook tailscale.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-tailscale.log"
+
+deploy-db:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook db.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-db.log"
+
+deploy-clickhouse:
+  mkdir -p "{{justfile_directory()}}/logs" \
+    && uv run ansible-playbook clickhouse.yml \
+      2>&1 | tee "{{justfile_directory()}}/logs/$(date -u +%Y%m%d%H%M%S)-deploy-clickhouse.log"
+
+# ------------------------------ Database Download ------------------------------
+
+# Download Grug RocksDB — interactive host selection (no tee, prompt needs direct stdout)
+# Usage: just download-db-velox testnet
+download-db-velox network:
+  uv run ansible-playbook download-db-velox.yml \
+    -e velox_network={{network}}
+
+# Download CometBFT data — interactive host selection (no tee, prompt needs direct stdout)
+# Usage: just download-db-cometbft testnet
+download-db-cometbft network:
+  uv run ansible-playbook download-db-cometbft.yml \
+    -e velox_network={{network}}
+
+# Download Points Bot RocksDB — interactive host selection (no tee, prompt needs direct stdout)
+# Usage: just download-db-points-bot testnet
+download-db-points-bot network restart_after="true":
+  uv run ansible-playbook download-db-points-bot.yml \
+    -e network={{network}} \
+    -e restart_after={{restart_after}}

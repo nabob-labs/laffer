@@ -1282,7 +1282,7 @@ mod tests_jmt {
     };
 
     // Using the same test case as in our rust-rocksdb fork:
-    // https://github.com/left-curve/rust-rocksdb/blob/v0.21.0-cw/tests/test_timestamp.rs#L150
+    // https://github.com/nabob-labs/rust-rocksdb/blob/v0.21.0-cw/tests/test_timestamp.rs#L150
     //
     // hash(donald)  = 01000001...
     // hash(jake)    = 11001101...

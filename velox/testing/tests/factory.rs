@@ -21,7 +21,7 @@ use {
     },
 };
 
-/// Prior to PR [#1460](https://github.com/left-curve/left-curve/pull/1460),
+/// Prior to PR [#1460](https://github.com/nabob-labs/laffer/pull/1460),
 /// users are expected to first make a deposit before sending the `RegisterUser`
 /// message. Sending the `RegisterUser` message without a deposit resulting in
 /// the transaction failing. This design has drawbacks; see the PR's description.
@@ -569,7 +569,7 @@ async fn onboarding_without_deposit_when_minimum_deposit_is_zero() {
         .should_succeed_and(|coins| coins.is_empty());
 }
 
-/// Since PR [#1460](https://github.com/left-curve/left-curve/pull/1460), it's
+/// Since PR [#1460](https://github.com/nabob-labs/laffer/pull/1460), it's
 /// not longer necessary to make a deposit before onboarding.
 /// However, we keep this test for the edge case -- what if someone sends a
 /// transfer before creating the account? The user needs to be able to recover

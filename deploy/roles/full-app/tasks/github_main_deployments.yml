@@ -1,0 +1,79 @@
+- name: Create environments
+  uri:
+    url: "https://api.github.com/repos/nabob-labs/laffer/environments/{{ item }}"
+    method: PUT
+    headers:
+      Authorization: "token {{ ghcr_token }}"
+      Accept: "application/vnd.github.v3+json"
+    body_format: json
+    body:
+      wait_timer: 0
+      reviewers: []
+      deployment_branch_policy: null
+    status_code: [200, 201]
+  failed_when: false
+  loop:
+    - "velox-api"
+    - "velox-graphiql"
+    - "faucet-bot"
+  when: item != 'faucet-bot' or (faucet_bot_enabled | default(false))
+
+- name: Create GitHub deployments
+  uri:
+    url: "https://api.github.com/repos/nabob-labs/laffer/deployments"
+    method: POST
+    headers:
+      Authorization: "token {{ ghcr_token }}"
+      Accept: "application/vnd.github.v3+json"
+    body_format: json
+    body:
+      ref: "{{ github_sha }}"
+      environment: "{{ item.name }}"
+      description: "{{ item.description }}"
+      auto_merge: false
+      required_contexts: []
+    status_code: [200, 201]
+  register: deployment_results
+  loop:
+    - { name: "velox-api", description: "Velox API", url: "https://api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/graphql" }
+    - { name: "velox-graphiql", description: "GraphiQL", url: "https://graphiql-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/mint" }
+    - { name: "faucet-bot", description: "Faucet", url: "https://faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/mint" }
+  when: item.name != 'faucet-bot' or (faucet_bot_enabled | default(false))
+
+- name: Set deployment statuses
+  uri:
+    url: "https://api.github.com/repos/nabob-labs/laffer/deployments/{{ item.json.id }}/statuses"
+    method: POST
+    headers:
+      Authorization: "token {{ ghcr_token }}"
+      Accept: "application/vnd.github.v3+json"
+    body_format: json
+    body:
+      state: "success"
+      target_url: "{{ deployment_results.results[ansible_loop.index0].item.url }}"
+      description: "{{ deployment_results.results[ansible_loop.index0].item.description }} ready"
+      environment_url: "{{ deployment_results.results[ansible_loop.index0].item.url }}"
+    status_code: [200, 201]
+  loop: "{{ deployment_results.results }}"
+  loop_control:
+    extended: true
+  when: deployment_results.results is defined
+
+- name: Add deployment summary to GitHub
+  when: lookup('env', 'GITHUB_STEP_SUMMARY') != ''
+  delegate_to: localhost
+  connection: local
+  become: false
+  shell: |
+    cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+    # 🚀 PR Deployment Summary ({{ hostname }})
+    | Name | Result |
+    | ---- | ------ |
+    | **Status** | ✅ |
+    | **Velox GraphQL** | [https://api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/graphql](https://api-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/graphql) |
+    | **Velox GraphiQL** | [https://graphiql-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}](https://graphiql-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}) |
+    | **Deployment name** | `{{ deployment_name }}` |
+    {% if faucet_bot_enabled | default(false) %}
+    | **Faucet bot** | [https://faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/mint](https://faucet-{{ velox_network }}-{{ hostname }}.{{ velox_domain }}/mint) |
+    {% endif %}
+    EOF
