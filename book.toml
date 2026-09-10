@@ -1,0 +1,24 @@
+[book]
+authors     = ["Nabob Labs."]
+description = "Everything about Velox"
+language    = "en"
+src         = "book/"
+title       = "The Velox Book"
+
+[output.html]
+additional-js      = ["book/mermaid-init.js"]
+git-repository-url = "https://github.com/nabob-labs/laffer.git"
+theme              = "book/theme"
+
+[build]
+build-dir = "target/book/"
+
+[rust]
+edition = "2024"
+
+# This is for Latex support, install with: `cargo install mdbook-katex@0.10.0-alpha`.
+[preprocessor.katex]
+
+# This is for Mermaid diagram support, install with: `cargo install mdbook-mermaid@0.17.0`.
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
