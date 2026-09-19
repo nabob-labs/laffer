@@ -1,3 +1,0 @@
----
-cloudflared_dir: "{{ deploy_home }}/cloudflared"
-cloudflared_metrics_port: 2000

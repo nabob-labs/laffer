@@ -1,4 +1,0 @@
----
-promtail_dir: "{{ deploy_home }}/promtail"
-promtail_port: 9080
-loki_url: "http://ovh3:3100"

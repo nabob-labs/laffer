@@ -1,5 +1,0 @@
-- block:
-    - name: Update Traefik dynamic config
-      template:
-        src: traefik-pr-services.yml
-        dest: "{{ traefik_dir }}/config/{{ velox_network }}.yml"

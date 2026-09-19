@@ -1,4 +1,0 @@
----
-loki_dir: "{{ deploy_home }}/loki"
-loki_port: 3100
-promtail_port: 9080

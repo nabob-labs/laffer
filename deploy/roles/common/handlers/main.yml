@@ -1,9 +1,0 @@
----
-- name: reload ssh
-  service:
-    name: ssh
-    state: reloaded
-
-- name: reload ufw
-  community.general.ufw:
-    state: reloaded

@@ -1,2 +1,0 @@
----
-dozzle_dir: "{{ deploy_home }}/dozzle"

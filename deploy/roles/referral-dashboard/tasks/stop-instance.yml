@@ -1,6 +1,0 @@
----
-- name: "{{ network }} - Stop stack"
-  community.docker.docker_compose_v2:
-    project_src: "{{ referral_dashboard_dir }}/{{ network }}"
-    state: stopped
-    pull: never

@@ -1,3 +1,0 @@
----
-uptimekuma_dir: "{{ deploy_home }}/uptimekuma"
-uptimekuma_manage_systemd: true
