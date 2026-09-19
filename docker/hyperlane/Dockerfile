@@ -1,6 +1,6 @@
 # docker/hyperlane/Dockerfile
 # syntax=docker/dockerfile:1.4
-# Multi-stage build for Hyperlane Rust agents (nabob-labs fork, branch velox)
+# Multi-stage build for Hyperlane Rust agents (nabob-labs/laffer fork, branch velox)
 #
 # Stage 1: Build Rust binaries from the Hyperlane fork
 # Stage 2: Create a minimal runtime image with only the required binaries
@@ -81,7 +81,7 @@ FROM ubuntu:24.04
 ARG GIT_COMMIT=unknown
 
 # Useful metadata for OCI registries
-LABEL org.opencontainers.image.description="Hyperlane Rust agents (nabob-labs fork, branch velox)"
+LABEL org.opencontainers.image.description="Hyperlane Rust agents (nabob-labs/laffer fork, branch velox)"
 LABEL org.opencontainers.image.revision=$GIT_COMMIT
 LABEL org.opencontainers.image.source="https://github.com/nabob-labs/hyperlane-monorepo"
 

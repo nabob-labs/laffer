@@ -1,0 +1,1816 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "common": {
+    "chain": "Chain",
+    "fee": "Fee",
+    "account": "Account",
+    "connect": "Connect",
+    "assets": "Assets",
+    "fund": "Fund",
+    "send": "Send",
+    "viewAll": "View All",
+    "max": "Max",
+    "or": "or",
+    "submit": "Submit",
+    "deposit": "Deposit",
+    "withdraw": "Withdraw",
+    "signin": "Log In",
+    "signup": "Register",
+    "dismiss": "Dismiss",
+    "continue": "Continue",
+    "back": "Back",
+    "cancel": "Cancel",
+    "cancelAll": "Cancel All",
+    "delete": "Delete",
+    "available": "Available",
+    "username": "Username",
+    "accounts": "Accounts",
+    "switch": "Switch",
+    "hi": "Hi",
+    "to": "To",
+    "for": "for",
+    "at": "at",
+    "qr": "QR",
+    "width": "width",
+    "error": "Error",
+    "retry": "Retry",
+    "failedToLoad": "Failed to load. Please try again.",
+    "confirm": "Confirm",
+    "signinWithDesktop": "Connect Desktop Session",
+    "signinWithSession": "Log in with session key",
+    "motto": "Velox–the one app for everything DeFi",
+    "notWalletDetected": "No wallet detected",
+    "overview": "Overview",
+    "advice": "You are using {environment}",
+    "environment": [
+      {
+        "declarations": [
+          "input environment"
+        ],
+        "selectors": [
+          "environment"
+        ],
+        "match": {
+          "environment=dev": "devnet",
+          "environment=test": "testnet"
+        }
+      }
+    ],
+    "devnet": {
+      "advice": "you are using devnet"
+    },
+    "testnet": {
+      "advice": "you are using testnet",
+      "title": "Message from the founder",
+      "description": "Thank you for trying out Velox’s first ever testnet!\t\tThe purpose of testnet-1 <b>is</b> for testing the basic infrastructure of Velox chain, including consensus, smart contract engine, and indexer. As such, user-facing features are very limited. The coming testnet-2 (expected in June/July) will add our flagship product, the Velox DEX. Then, testnet-3 (August/September) will add margin trading.\n\nFor now, you can register, open subaccounts, and transfer tokens, that’s it. Upon your first login, you will receive some fake tokens (fake BTC, fake ETH, ...) to play with.\n\nMake sure to complete the Galxe quests[ADD LINK] and mint your limited time NFT!\n\ng🍡"
+    },
+    "accountMenu": {
+      "assets": {
+        "dex": "DEX",
+        "lendingMarket": "Lending Market"
+      }
+    },
+    "signWithWallet": [
+      {
+        "declarations": [
+          "input action"
+        ],
+        "selectors": [
+          "action"
+        ],
+        "match": {
+          "action=signin": "Log in with wallet",
+          "action=signup": "Register with wallet"
+        }
+      }
+    ],
+    "signWithPasskey": [
+      {
+        "declarations": [
+          "input action"
+        ],
+        "selectors": [
+          "action"
+        ],
+        "match": {
+          "action=signin": "Log in with Passkey",
+          "action=signup": "Register with Passkey"
+        }
+      }
+    ],
+    "welcomeToVelox": "Welcome to Velox",
+    "connectWithPasskey": "Connect with Passkey",
+    "connectWallet": "Connect Wallet",
+    "createNewUser": "Create New User"
+  },
+  "footer": {
+    "terms": "Terms of Use",
+    "privacyPolicy": "Privacy Policy"
+  },
+  "statusBadge": {
+    "status": "Status",
+    "details": "See Details",
+    "websocket": "WebSocket",
+    "chain": "Chain",
+    "dex": "DEX",
+    "block": "Block",
+    "httpPolling": "HTTP Polling",
+    "reconnecting": "Reconnecting...",
+    "statusText": [
+      {
+        "declarations": [
+          "input status"
+        ],
+        "selectors": [
+          "status"
+        ],
+        "match": {
+          "status=success": "Online",
+          "status=error": "Offline",
+          "status=warning": "Warning"
+        }
+      }
+    ]
+  },
+  "countdown": {
+    "days": [
+      {
+        "declarations": [
+          "input days",
+          "local countDays = days: plural"
+        ],
+        "selectors": [
+          "countDays"
+        ],
+        "match": {
+          "countDays=one": "Day",
+          "countDays=other": "Days"
+        }
+      }
+    ],
+    "hours": [
+      {
+        "declarations": [
+          "input hours",
+          "local countHours = hours: plural"
+        ],
+        "selectors": [
+          "countHours"
+        ],
+        "match": {
+          "countHours=one": "Hour",
+          "countHours=other": "Hours"
+        }
+      }
+    ],
+    "minutes": [
+      {
+        "declarations": [
+          "input minutes",
+          "local countMinutes = minutes: plural"
+        ],
+        "selectors": [
+          "countMinutes"
+        ],
+        "match": {
+          "countMinutes=one": "Minute",
+          "countMinutes=other": "Minutes"
+        }
+      }
+    ],
+    "seconds": [
+      {
+        "declarations": [
+          "input seconds",
+          "local countSeconds = seconds: plural"
+        ],
+        "selectors": [
+          "countSeconds"
+        ],
+        "match": {
+          "countSeconds=one": "Second",
+          "countSeconds=other": "Seconds"
+        }
+      }
+    ]
+  },
+  "applets": {
+    "trade": {
+      "id": "trade",
+      "img": "/images/emojis/simple/protrading.svg",
+      "title": "Trade",
+      "description": "Real-Time Charts, Data & Trading",
+      "path": "/trade",
+      "keywords": "swap,dex,trade,pro,charts,data,trading"
+    },
+    "bridge": {
+      "id": "bridge",
+      "img": "/images/emojis/simple/moneybag.svg",
+      "title": "Deposit & Withdraw",
+      "description": "Deposit and withdraw assets across chains",
+      "path": "/bridge",
+      "keywords": "bridge,deposit,withdraw,cross-chain"
+    },
+    "earn": {
+      "id": "earn",
+      "img": "/images/emojis/simple/pig.svg",
+      "title": "Earn",
+      "description": "Provide liquidity and earn yields",
+      "path": "/earn",
+      "keywords": "vault,earn,liquidity,lp,provider,velox"
+    },
+    "transfer": {
+      "id": "transfer",
+      "img": "/images/emojis/simple/money.svg",
+      "title": "Transfer",
+      "description": "Send and receive crypto.",
+      "path": "/transfer",
+      "keywords": "transfer,send,receive"
+    },
+    "create-account": {
+      "id": "create-account",
+      "img": "/images/emojis/simple/wizard.svg",
+      "title": "Open Subaccount",
+      "description": "Create subaccounts.",
+      "path": "/account/create",
+      "keywords": "account,create,register"
+    },
+    "settings": {
+      "id": "settings",
+      "img": "/images/emojis/simple/settings.svg",
+      "title": "Settings",
+      "description": "Optimize your display, security, and more.",
+      "path": "/settings",
+      "keywords": "settings,preferences,options"
+    },
+    "referral": {
+      "id": "referral",
+      "img": "/images/emojis/simple/referral.svg",
+      "title": "Referral",
+      "description": "Invite friends and earn rewards together.",
+      "path": "/referral",
+      "keywords": "referral,invite,friends,commission,affiliate"
+    },
+    "devtool": {
+      "id": "devtool",
+      "img": "/images/emojis/simple/factory-2.svg",
+      "title": "DevTool",
+      "description": "Access developer tools.",
+      "path": "/devtool",
+      "keywords": "devtool,developer,tools"
+    }
+  },
+  "explorer": {
+    "block": {
+      "title": "Block Explorer",
+      "notFound": {
+        "title": "Block not found",
+        "description": "We couldn’t find the block you were looking for. If it’s a valid block, it may not have been generated yet, so please try again later. If the issue persists, please contact us for further assistance."
+      },
+      "cronsOutcomes": "Cron Outcomes",
+      "details": {
+        "blockDetails": "Block {height}",
+        "blockHash": "Block Hash",
+        "blockHeight": "Block Height",
+        "blockTime": "Time",
+        "transactions": "Transactions",
+        "proposer": "Proposer",
+        "numberOfTx": "Number of Txs"
+      },
+      "futureBlock": {
+        "targetBlock": "Target Block",
+        "description": " The estimated time for a block to be created and added to the blockchain.",
+        "estimateTimeISO": "Estimated Time (ISO)",
+        "estimateTimeUTC": "Estimated Time (UTC)",
+        "hasNotBeenCreated": "Block {height} has not been created yet.",
+        "remainingBlocks": "Remaining Blocks",
+        "currentBlock": "Current Block"
+      }
+    },
+    "txs": {
+      "title": "Transaction Explorer",
+      "txDetails": "Transaction Details",
+      "notFound": {
+        "pre": "We couldn’t find",
+        "title": "Transaction not found",
+        "description": "on VELOX. If it’s a valid transaction, it may not have been generated yet, so please try again later. If the issue persists, please contact us for further assistance."
+      },
+      "result": [
+        {
+          "declarations": [
+            "input result"
+          ],
+          "selectors": [
+            "result"
+          ],
+          "match": {
+            "result=true": "Success",
+            "result=false": "Failed"
+          }
+        }
+      ],
+      "messages": "Messages",
+      "events": "Events",
+      "txHash": "Tx hash",
+      "sender": "Sender",
+      "time": "Time",
+      "block": "Block",
+      "index": "Index",
+      "gasUsed": "Gas Used",
+      "gasWanted": "Gas Wanted",
+      "status": "Status",
+      "success": "Success",
+      "failed": "Failed",
+      "error": "Error",
+      "message": "Message",
+      "backtrace": "Backtrace"
+    },
+    "contracts": {
+      "title": "Contract Explorer",
+      "notFound": {
+        "pre": "We couldn’t find ",
+        "title": "Contract not found",
+        "description": " contract you were looking for. If it’s a valid contract, it may not have been deployed yet or it may be an account, so please try again later. If the issue persists, please contact us for further assistance."
+      },
+      "details": {
+        "contractDetails": "Contract Details",
+        "codeHash": "Code Hash",
+        "contractAddress": "Contract Address",
+        "admin": "Admin",
+        "balances": "Balances"
+      },
+      "contractDescription": [
+        {
+          "declarations": [
+            "input contract"
+          ],
+          "selectors": [
+            "contract"
+          ],
+          "match": {
+            "contract=accountFactory": "**Account Factory** The contract responsible for creating new accounts.",
+            "contract=gateway": "**Gateway** The contract responsible for handling cross-chain communication.",
+            "contract=lending": "**Lending** The contract responsible for managing loans and collateral.",
+            "contract=oracle": "**Oracle** The contract responsible for providing external data to the blockchain.",
+            "contract=dex": "**DEX** The contract responsible for facilitating decentralized trading.",
+            "contract=warp": "**Warp** The contract responsible for managing the warp protocol.",
+            "contract=taxman": "**Taxman** The contract responsible for handling taxes and fees.",
+            "contract=ism": "**ISM** The contract responsible for managing the interchain security model.",
+            "contract=mailbox": "**Mailbox** The contract responsible for handling messages between chains.",
+            "contract=perps": "**Perps** The contract responsible for managing perpetual futures trading.",
+            "contract=bank": "**Bank** The contract responsible for managing fungible token transfers.",
+            "contract=vesting": "**Vesting** The contract responsible for managing token vesting schedules.",
+            "contract=va": "**VA** The contract responsible for managing the validator set."
+          }
+        }
+      ]
+    },
+    "accounts": {
+      "title": "Account Explorer",
+      "notFound": {
+        "pre": "We couldn’t find ",
+        "title": "Account not found",
+        "description": " account you were looking for. If it’s a valid account, it may not have been created yet or it may be a contract, so please try again later. If the issue persists, please contact us for further assistance."
+      },
+      "details": {
+        "accountDetails": "Account Details",
+        "codeHash": "Code Hash:",
+        "contractAddress": "Contract Address:",
+        "admin": "Admin:",
+        "balances": "Balances:"
+      },
+      "perps": {
+        "balance": {
+          "margin": "Margin",
+          "equity": "Equity",
+          "availableMargin": "Available Margin",
+          "reservedMargin": "Reserved Margin",
+          "vaultShares": "Vault Shares"
+        },
+        "positions": {
+          "pair": "Pair",
+          "side": "Side",
+          "size": "Size",
+          "entryPrice": "Entry Price",
+          "unrealizedPnl": "Unrealized PnL",
+          "liqPrice": "Liq. Price",
+          "long": "LONG",
+          "short": "SHORT"
+        },
+        "orders": {
+          "pair": "Pair",
+          "side": "Side",
+          "size": "Size",
+          "limitPrice": "Limit Price",
+          "reduceOnly": "Reduce Only",
+          "reservedMargin": "Reserved Margin",
+          "createdAt": "Created At",
+          "long": "LONG",
+          "short": "SHORT"
+        }
+      }
+    },
+    "user": {
+      "title": "User Profile",
+      "stats": {
+        "totalAssets": "Total Assets",
+        "totalAccounts": "Total Accounts"
+      },
+      "accounts": "Accounts",
+      "accountNumber": "Account #{index}",
+      "active": "Active",
+      "inactive": "Inactive",
+      "tabs": {
+        "assets": "Assets",
+        "transactions": "Transactions"
+      },
+      "notFound": {
+        "title": "User Not Found",
+        "description": "The user {username} could not be found."
+      }
+    }
+  },
+  "appUpdate": {
+    "title": "Update Available",
+    "description": "A new version of the app is available. Please update to the latest version to continue using the app.",
+    "updateButton": "Update Now"
+  },
+  "modals": {
+    "walletSelector": {
+      "title": "Select Wallet"
+    },
+    "qrconnect": {
+      "title": "QR Connect",
+      "description": "Scan the QR code with your mobile to connect to your account."
+    },
+    "confirmSend": {
+      "confirmButton": "Confirm Send",
+      "title": "Review",
+      "sending": "Sending",
+      "fee": "Fee"
+    },
+    "accountCreation": {
+      "title": "Account Created",
+      "accountName": "Account Name",
+      "accountBalance": "Account Balance",
+      "getStarted": "Get Started!"
+    },
+    "renewSession": {
+      "title": "Session expired",
+      "description": "For your security, each login session expires if you close the tab, move to a different tab, or after 24 hours. Please log in again.",
+      "stayLogout": "Stay logged out"
+    },
+    "protradeCloseAllOrders": {
+      "title": "Close All Orders",
+      "description": "This will close all your open orders.",
+      "action": "Confirm Close Orders"
+    },
+    "proTradeCloseOrder": {
+      "title": "Close Order",
+      "description": "This will close the order.",
+      "action": "Confirm Close Order"
+    },
+    "tpsl": {
+      "title": "TP/SL for Position",
+      "coin": "Coin",
+      "position": "Position",
+      "long": "Long",
+      "short": "Short",
+      "entryPrice": "Entry Price",
+      "markPrice": "Mark Price",
+      "tpPrice": "TP Price",
+      "gain": "Gain",
+      "slPrice": "SL Price",
+      "loss": "Loss",
+      "expectedPl": "Expected P/L:",
+      "zeroUsd": "0.00 USD",
+      "configureAmount": "Configure Amount",
+      "confirm": "Confirm",
+      "edit": "Edit",
+      "cancel": "Cancel",
+      "add": "Add",
+      "takeProfit": "Take Profit",
+      "stopLoss": "Stop Loss",
+      "priceAbove": "Price above",
+      "priceBelow": "Price below",
+      "noTakeProfitSet": "No Take Profit set",
+      "noStopLossSet": "No Stop Loss set",
+      "tpslUpdated": "TP/SL updated successfully",
+      "orderCanceled": "Conditional order canceled",
+      "helpDefault": "By default take-profit and stop-loss orders apply to the entire position. Take-profit and stop-loss automatically cancel after closing the position. A market order is triggered when the stop loss or take profit price is reached.",
+      "helpConfigured": "If the order size is configured above, the TP/SL order will be for that size no matter how the position changes in the future.",
+      "errors": {
+        "tpAboveForLongs": "TP must be above entry price for longs",
+        "tpBelowForShorts": "TP must be below entry price for shorts",
+        "slBelowForLongs": "SL must be below entry price for longs",
+        "slAboveForShorts": "SL must be above entry price for shorts"
+      }
+    },
+    "marginMode": {
+      "title": "{symbol} Margin Mode",
+      "cross": "Cross",
+      "crossDescription": "All cross positions share the same cross margin as collateral. In the event of liquidation, your cross margin balance and any remaining open positions under assets in this mode may be forfeited.",
+      "isolated": "Isolated (Coming Soon)",
+      "isolatedDescription": "This feature is currently under development. We're working hard to bring it to you soon.",
+      "confirm": "Confirm"
+    },
+    "marketClose": {
+      "title": "Market Close",
+      "description": "This will attempt to immediately close the position.",
+      "size": "Size",
+      "price": "Price",
+      "market": "Market",
+      "confirm": "Confirm"
+    },
+    "adjustLeverage": {
+      "title": "Adjust Leverage",
+      "description": "Control the leverage used for {symbol} positions. The maximum leverage is {maxLeverage}x.",
+      "subDescription": "Max position size decreases the higher your leverage.",
+      "confirm": "Confirm",
+      "warning": "Note that setting a higher leverage increases the risk of liquidation."
+    },
+    "pnlShare": {
+      "entryPrice": "Entry Price",
+      "markPrice": "Mark Price",
+      "copyLink": "Copy Link",
+      "shareOnX": "Share on X"
+    },
+    "pointsShare": {
+      "weekLabel": "Week",
+      "programLabel": "Points Program"
+    },
+    "shareCard": {
+      "referralCode": "Referral Code",
+      "overlay": "Overlay",
+      "saveImage": "Save Image"
+    }
+  },
+  "signin": {
+    "sentVerificationCode": "We've sent a verification code to ",
+    "usernamesFound": "Usernames found",
+    "connectWalletToContinue": "Connect your wallet to continue",
+    "chooseCredential": "Select any username linked to your credentials below",
+    "noUsernamesFound": "No usernames found",
+    "noUsernameMessage": "We could not find any username associated with the credential you connected.",
+    "authorizeInDesktop": "Please authorize this mobile device from your desktop app",
+    "advancedOptions": "Advanced Options",
+    "continueWithoutSignin": "Continue without signing in",
+    "qrInstructions": "Open {domain}, connect with your passkey or wallet and click the qr button in your account menu.",
+    "placeholder": "Enter your ",
+    "noAccount": "Don’t have an account?",
+    "forgotUsername": "Forgot my username",
+    "useAnotherAccount": "Use another account",
+    "connectWallet": "Connect wallet",
+    "rememberUsername": {
+      "lastLogin": "Last login: {time}"
+    },
+    "errors": {
+      "failedSignInWithDesktop": "Failed to log in with desktop",
+      "mobileSessionAborted": "Mobile session was aborted",
+      "usernameRequired": "Username is required",
+      "usernameNotExist": "Username doesn’t exist",
+      "failedSigningIn": "Failed to connect with the selected credential."
+    },
+    "credential": {
+      "description": "Choose any of the credentials that have been associated with your username."
+    }
+  },
+  "welcome": {
+    "title": "Welcome to Velox",
+    "description": "We’re delighted to have you with us and look forward to seeing what you do next."
+  },
+  "auth": {
+    "email": "Email",
+    "emailPlaceholder": "email",
+    "passkey": "Passkey",
+    "wallets": "Wallets",
+    "didntReceiveCode": "Didn't receive the code?",
+    "enterYou": "Enter your",
+    "enterYourEmail": "Enter your email",
+    "requetFromFaucet": "Request Funds from Faucet",
+    "createYourAccount": "Create Your Account",
+    "noAccountFound": "We didn't find an account for {identifier}, so we'll create one for you.",
+    "passkeyChoice": {
+      "title": "Choose how to continue",
+      "description": "Passkey uses Face ID or your fingerprint. No password, no seed phrase.",
+      "createNew": "Create New Passkey",
+      "useExisting": "Use Existing Passkey"
+    },
+    "passkeyError": {
+      "title": "No Passkey found",
+      "description": "No Passkey is found in your keychain, or you have rejected the operation. If you do not have an account yet, click the button below to create one."
+    },
+    "referralCode": "Referral code",
+    "referralCodePlaceholder": "Enter your friend's referral code",
+    "errors": {
+      "invalidVerificationCode": "Invalid verification code",
+      "userNotFound": "This email account is not bound to any account",
+      "authFailed": "Authentication error. Please try again later.",
+      "validEmail": "Please enter a valid email address."
+    }
+  },
+  "signup": {
+    "mobileModal": {
+      "title": "Register Not Available!",
+      "description": "Unfortunately, sign-up is not supported on mobile devices. Please use a desktop to complete your sign-up."
+    },
+    "deposit": {
+      "title": "Activate Account",
+      "description": "Your account is almost ready!",
+      "description2": "Activate it by making your first deposit.",
+      "cta": "Deposit & Get Started",
+      "usernameTitle": "Your username is {username}",
+      "usernameDescription": "You can change this username anytime in the settings.",
+      "depositCardTitle": "Deposit $10 to activate",
+      "depositCardDescription": "A minimum deposit of $10 is required to start using Velox."
+    },
+    "faucet": {
+      "cardTitle": "Claim test tokens",
+      "cardDescription": "Get free test tokens to start exploring Velox.",
+      "cta": "Claim Tokens",
+      "claiming": "Claiming...",
+      "changeUsername": "Change Username"
+    },
+    "createAccount": "Create Account",
+    "doThisLater": "I'll do this later",
+    "alreadyHaveAccount": "Already have an account?",
+    "carousel": {
+      "title": [
+        {
+          "declarations": [
+            "input step"
+          ],
+          "selectors": [
+            "step"
+          ],
+          "match": {
+            "step=0": "Trade",
+            "step=1": "Leverage up",
+            "step=2": "Earn"
+          }
+        }
+      ],
+      "description": [
+        {
+          "declarations": [
+            "input step"
+          ],
+          "selectors": [
+            "step"
+          ],
+          "match": {
+            "step=0": "crypto assets, real world assets, and derivatives in Velox’s blazingly fast exchange. Enjoy deep liquidity, fast execution, and fair prices.",
+            "step=1": "with Velox’s unified trading account with low cost and high capital efficiency. Spot, perps, vaults, one account, under one unified margin system.",
+            "step=2": "passive yields on your idle assets by depositing in Velox’s vaults. Provide liquidity to facilitate trades, or participate in complex strategies operated by professional traders."
+          }
+        }
+      ]
+    },
+    "accountCreated": {
+      "description": "Account created successfully! You can now log in."
+    },
+    "title": "Create your account",
+    "options": {
+      "description": "Choose a log in credential. You can add or remove credentials afterwards."
+    },
+    "errors": {
+      "couldntCompleteRequest": "Couldn’t complete request",
+      "usernameTaken": "Username is already taken",
+      "failedSendingFunds": "Failed sending funds",
+      "creatingAccount": "Error creating account"
+    }
+  },
+  "pagination": {
+    "page": "Page",
+    "of": "of",
+    "next": "Next",
+    "previous": "Previous"
+  },
+  "maintenance": {
+    "title": "Website Under Maintenance",
+    "description": "We are currently undergoing maintenance. We apologize for any inconvenience this may cause and appreciate your patience."
+  },
+  "notFound": {
+    "title": "Page not found!",
+    "description": "Sorry! We couldn’t find what you were looking for...",
+    "goToHome": "Go to Homepage"
+  },
+  "accountCreation": {
+    "accountCreated": "Account Created",
+    "title": "Create New Account",
+    "description": "Create a new subaccount to start trading and managing your assets.",
+    "stepper": {
+      "title": [
+        {
+          "declarations": [
+            "input account stepper description",
+            "input step"
+          ],
+          "selectors": [
+            "step"
+          ],
+          "match": {
+            "step=0": "Account Type",
+            "step=1": "Deposit"
+          }
+        }
+      ],
+      "description": [
+        {
+          "declarations": [
+            "input account stepper description",
+            "input step"
+          ],
+          "selectors": [
+            "step"
+          ],
+          "match": {
+            "step=0": "Select your account type to interact within the entire ecosystem",
+            "step=1": "Fund your first spot account, you’ll be able to create another account later."
+          }
+        }
+      ]
+    },
+    "accountType": {
+      "title": [
+        {
+          "declarations": [
+            "input account type title",
+            "input accountType"
+          ],
+          "selectors": [
+            "accountType"
+          ],
+          "match": {
+            "accountType=spot": "Spot Account",
+            "accountType=margin": "Margin Account"
+          }
+        }
+      ],
+      "description": [
+        {
+          "declarations": [
+            "input account type description",
+            "input accountType"
+          ],
+          "selectors": [
+            "accountType"
+          ],
+          "match": {
+            "accountType=spot": "Can hold any asset and partake in any activity; cheapest gas cost; can only take over-collateralized loans.",
+            "accountType=margin": "Can take under-collateralized loans up to 5x leverage; can only hold whitelisted assets and partake in whitelisted activities."
+          }
+        }
+      ]
+    }
+  },
+  "activities": {
+    "title": "Activities",
+    "noActivities": {
+      "title": "No activity yet",
+      "description": "When you trade, transfer tokens, or perform other activities, updates will appear here"
+    },
+    "activity": {
+      "transfer": {
+        "title": [
+          {
+            "declarations": [
+              "input action"
+            ],
+            "selectors": [
+              "action"
+            ],
+            "match": {
+              "action=sent": "Sent",
+              "action=received": "Received"
+            }
+          }
+        ],
+        "direction": {
+          "first": "from",
+          "second": "to"
+        }
+      },
+      "account": {
+        "title": "Account created"
+      },
+      "orderCreated": {
+        "title": "Order created",
+        "description": "{orderType} {action} in ",
+        "atPrice": "at price "
+      },
+      "orderCanceled": {
+        "title": "Order canceled",
+        "description": "{orderType} {action} in ",
+        "atPrice": "at price "
+      },
+      "orderFilled": {
+        "title": "Order {isFullfilled}",
+        "remaining": "remaining",
+        "isFullfilled": [
+          {
+            "declarations": [
+              "input isFullfilled"
+            ],
+            "selectors": [
+              "isFullfilled"
+            ],
+            "match": {
+              "isFullfilled=true": "fulfilled",
+              "isFullfilled=false": "partially fulfilled"
+            }
+          }
+        ]
+      },
+      "perpOrderFilled": {
+        "title": "Perps order filled",
+        "atPrice": "at price "
+      },
+      "perpLiquidated": {
+        "title": "Position liquidated"
+      },
+      "perpDeleveraged": {
+        "title": "Position auto-deleveraged"
+      },
+      "modal": {
+        "blockHeight": "Block Height",
+        "spotOrderAction": "Order {status}",
+        "spotOrderBuy": "{orderType} ∙ Buy",
+        "spotOrderSell": "{orderType} ∙ Sell",
+        "swapped": "Swapped",
+        "received": "Received",
+        "sent": "Sent ",
+        "to": "To",
+        "from": "From",
+        "fee": "Fee",
+        "time": "Time",
+        "amount": "Amount",
+        "tokenReceived": "Token Received",
+        "limitPrice": "Limit Price",
+        "id": "ID",
+        "timeCreated": "Time Created",
+        "timeCanceled": "Time Canceled",
+        "timeUpdated": "Time Updated",
+        "filledAmount": "Filled / Amount",
+        "averagePrice": "Avg / Price",
+        "transaction": "Transaction"
+      },
+      "link": [
+        {
+          "declarations": [
+            "input link"
+          ],
+          "selectors": [
+            "link"
+          ],
+          "match": {
+            "link=txHash": "Transaction",
+            "link=blockHeight": "BlockHeight"
+          }
+        }
+      ]
+    }
+  },
+  "sendAndReceive": {
+    "title": "Transfer",
+    "to": "To",
+    "sending": "You’re sending",
+    "sendSuccessfully": "Sent Successfully",
+    "inputPlaceholder": "Wallet address or username"
+  },
+  "quests": {
+    "galxeQuest": {
+      "title": "Galxe Quest",
+      "quest": {
+        "connectEthereumWallet": "Connect your Ethereum wallet",
+        "completeTxsInEthereum": "(For anti-sybil purpose) have 10 or more outgoing transaction on Ethereum mainnet (current: {number} Txs)",
+        "completeLimitOrder": "Complete a limit order",
+        "completeMarketOrder": "Complete a market order",
+        "swapAtLeastInPairs": "Trade in 3 different token pairs ({number} remaining)",
+        "swapAtLeastForUSD": "Trade $6.9M in volume (current: {number})"
+      }
+    }
+  },
+  "transfer": {
+    "error": {
+      "title": "Transfer Error",
+      "description": "We couldn’t complete your transfer. Please try again later."
+    },
+    "spotPerp": {
+      "from": "From",
+      "to": "To",
+      "youReceive": "You receive",
+      "depositSuccess": "Deposited to perp account",
+      "withdrawSuccess": "Withdrawn to spot account"
+    },
+    "warning": {
+      "deposit": "deposit",
+      "withdraw": "withdraw",
+      "receiveTitle": "This address can only receive funds from other Velox accounts",
+      "receivePreMessage": "Funds sent from CEX or other blockchains, such as Ethereum, will be lost and cannot be recovered.",
+      "receiveCex": "To fund your Velox address from a CEX or another blockchain such as Ethereum, use the {app} app.",
+      "sendNonVelox": "This account does not exist on Velox. Are you attempting to withdraw funds to Ethereum? Use the {app} app instead. Ethereum addresses and Velox addresses have the same format, but they are not the same.",
+      "transferWithdrawHint": "Use this page to transfer funds between Velox accounts. To withdraw tokens to Ethereum or other chains, use the {app} app."
+    }
+  },
+  "earn": {
+    "noLiquidity": "You don’t have any liquidity positions yet",
+    "party": "Party",
+    "earn": "Earn",
+    "select": "Select",
+    "deposit": "Deposit",
+    "title": "Select a strategy",
+    "description": "Earn tokens by lending or providing liquidity",
+    "vault": "Vault",
+    "apr": "APR",
+    "apy": "APY",
+    "myPosition": "My Position",
+    "tvl": "TVL",
+    "manage": "Manage"
+  },
+  "vaultLiquidity": {
+    "title": "Velox Liquidity Provider",
+    "apy": "APY",
+    "apyTooltip": "Annual Percentage Yield — the projected yearly return based on performance over the last 7-day window.",
+    "tvl": "TVL",
+    "tvlTooltip": "Total Value Locked — the total amount of assets deposited in the vault.",
+    "toDeposit": "You deposit",
+    "availableToDeposit": "Available to deposit",
+    "toGet": "You get",
+    "sharesToBurn": "Shares to burn",
+    "usdToReceive": "USD to receive",
+    "liquidity": "My liquidity",
+    "vaultShares": "Vault Shares",
+    "vaultShare": "Vault Share",
+    "networkFee": "Network Fee",
+    "withdrawalAmount": "Withdrawal amount",
+    "myWithdrawals": "My withdrawals",
+    "withdrawalsDescription": "Once cooldown finishes, the fund is automatically sent to your perp account.",
+    "usdAmount": "USD Amount",
+    "cooldownEndTime": "Cooldown End Time",
+    "noWithdrawals": "No withdrawals yet",
+    "noWithdrawalsDescription": "Your withdrawal requests will show up here once you make one",
+    "riskWarning1Pre": "Market making is ",
+    "riskWarning1Bold": "inherently risky",
+    "riskWarning1Post": ". Yields are not guaranteed, and returns may be negative.",
+    "riskWarning2Pre": "Deposits in this vault ",
+    "riskWarning2Bold": "do not count toward account margin",
+    "riskWarning2Post": " or collateralize perp positions.",
+    "riskWarning3Pre": "Withdrawals are subject to a ",
+    "riskWarning3Bold": "3-day cooldown period.",
+    "tvlCapReached": "This vault has reached its TVL limit. Deposits are temporarily unavailable.",
+    "full": "Full",
+    "paused": "This vault has paused activity due to abnormal risk conditions. Your funds remain safe.",
+    "performance": "Vault performance",
+    "shareTokenPrice": "Share token price",
+    "period": "Period",
+    "dailyGain": "Daily gain",
+    "dailyLoss": "Daily loss",
+    "price": "Price",
+    "dailyChange": "Daily change",
+    "noData": "No data available",
+    "modal": {
+      "addLiquidity": "Add Liquidity",
+      "depositing": "Depositing",
+      "toReceive": "To receive",
+      "destination": "To",
+      "withdrawLiquidity": "Withdraw Liquidity",
+      "withdrawing": "Withdrawing",
+      "from": "From",
+      "cooldownTitle": "3-day cooldown applies",
+      "cooldownDescription": "Funds will be automatically sent to your perp account once the cooldown period ends.",
+      "earlyWithdrawalTitle": "Early Withdrawal - Penalty",
+      "earlyWithdrawalDescription": "Withdrawing before {date} incurs an early exit penalty.",
+      "penalty": "Penalty",
+      "youReceive": "You Receive"
+    }
+  },
+  "poolLiquidity": {
+    "apy": "APY",
+    "networkFee": "Network fee",
+    "24hVol": "24h vol",
+    "tvl": "TVL",
+    "pool": "Pool",
+    "liquidity": "Liquidity",
+    "deposit": "You deposit",
+    "withdrawAmount": "Withdrawal amount",
+    "amount": "amount",
+    "modal": {
+      "addLiquidity": "Add Liquidity",
+      "depositing": "Depositing",
+      "withdrawalConfirmation": "Withdrawal Confirmation",
+      "withdrawPenaltyAdvice": "Are you sure you want to withdraw? If you withdraw now, you will have to pay a penalty.",
+      "continueWithdraw": "Continue Withdraw"
+    }
+  },
+  "bridge": {
+    "title": "Deposit & Withdraw",
+    "selectCoin": "Select coin",
+    "selectNetwork": "Select network",
+    "depositAddress": "Deposit Address",
+    "networkName": "{network} Network",
+    "onlyCanReceiveOn": "This address can only receive assets on",
+    "allow": "Allow",
+    "youDeposit": "You deposit",
+    "youGet": "You get",
+    "withdraw": {
+      "title": "Withdraw",
+      "action": "Withdrawing",
+      "toWallet": "To Wallet Address",
+      "estArrival": "Est. Arrival"
+    },
+    "deposit": {
+      "title": "Deposit",
+      "action": "Depositing",
+      "from": "From",
+      "continueInYourWallet": "Continue in your wallet",
+      "steps": {
+        "approve": "Approve",
+        "deposit": "Deposit",
+        "depositArrival": "Your deposit is estimated to arrive in",
+        "progress": "Step {current} of {total}"
+      }
+    },
+    "youWithdraw": "You withdraw",
+    "withdrawAddress": "Withdraw Wallet Address",
+    "minimumWithdraw": "Minimum withdraw",
+    "fee": "Fee",
+    "placeholderWithdrawAddress": "Enter your {network} wallet address",
+    "activeAccount": "To activate your account, please deposit at least {amount}",
+    "network": [
+      {
+        "declarations": [
+          "input network"
+        ],
+        "selectors": [
+          "network"
+        ],
+        "match": {
+          "network=11155111": "Ethereum Sepolia",
+          "network=1": "Ethereum",
+          "network=8453": "Base",
+          "network=42161": "Arbitrum"
+        }
+      }
+    ],
+    "timeArrival": [
+      {
+        "declarations": [
+          "input network"
+        ],
+        "selectors": [
+          "network"
+        ],
+        "match": {
+          "network=11155111": "6 blocks | 1-2 minutes",
+          "network=1": "6 blocks | 3-6 minutes",
+          "network=8453": "3-6 minutes",
+          "network=42161": "3-6 minutes"
+        }
+      }
+    ],
+    "withdrawTimeArrival": [
+      {
+        "declarations": [
+          "input network"
+        ],
+        "selectors": [
+          "network"
+        ],
+        "match": {
+          "network=11155111": "1 block | 0.4 second",
+          "network=1": "1 block | 0.4 second",
+          "network=8453": "1 block | 0.4 second",
+          "network=42161": "1 block | 0.4 second"
+        }
+      }
+    ],
+    "setDestinationAddress": "Set Destination Address",
+    "destinationWallet": "Destination Wallet",
+    "enterAddressManually": "Enter Address Manually",
+    "enterNetworkAddress": "Enter a {network} Address",
+    "riskOfFundLoss": "Risk of fund loss.",
+    "riskOfFundLossDescription": "Do not withdraw directly to a centralized exchange (Binance, OKX, Bybit, etc.) If you choose to proceed, you accept full responsibility.",
+    "iUnderstandTheRisk": "I Understand The Risk",
+    "exchangeWarning": "Exchange deposit addresses are not supported. Please use a self-custody wallet address.",
+    "confirm": "Confirm",
+    "connectedTo": "Connected to",
+    "rateLimitWarning": "As a security measure, a rate limit exists to throttle token outflows. Each rolling 24h window, up to 10% of total bridged volume may be bridged out.",
+    "withdrawTransferHint": "Use this page to withdraw funds from Velox to Ethereum or other chains. To transfer funds between Velox accounts, use the {app} app."
+  },
+  "settings": {
+    "title": "Settings",
+    "display": "Display",
+    "language": "Language",
+    "theme": "Theme",
+    "system": "System",
+    "chart": "Chart Engine",
+    "session": {
+      "title": "Current Session",
+      "description": "For security reasons, each session is limited to 24 hours. Please log in again if your current session expires.",
+      "remaining": "Remaining time",
+      "userStatus": {
+        "title": "Account Status",
+        "description": "Activate your account by making an initial deposit of at least $10.",
+        "button": "Deposit now"
+      },
+      "accountStatus": [
+        {
+          "declarations": [
+            "input status"
+          ],
+          "selectors": [
+            "status"
+          ],
+          "match": {
+            "status=active": "Active",
+            "status=inactive": "Inactive",
+            "status=frozen": "Frozen"
+          }
+        }
+      ],
+      "network": {
+        "title": "Network",
+        "chainId": "Chain ID",
+        "latestBlockHeight": "Latest Block Height",
+        "latestBlockTime": "Latest Block Time",
+        "endpoint": "Endpoint",
+        "frontendVersion": "Frontend Version"
+      },
+      "time": {
+        "hours": "h",
+        "minutes": "m",
+        "seconds": "s"
+      },
+      "username": {
+        "editUsername": "Edit Username",
+        "editDescription": "You can change your username only once. After that, it can’t be updated.",
+        "save": "Save"
+      }
+    },
+    "chartEngines": [
+      {
+        "declarations": [
+          "input chart"
+        ],
+        "selectors": [
+          "chart"
+        ],
+        "match": {
+          "chart=tradingview": "TradingView",
+          "chart=chartiq": "ChartIQ"
+        }
+      }
+    ],
+    "languages": [
+      {
+        "declarations": [
+          "input language"
+        ],
+        "selectors": [
+          "language"
+        ],
+        "match": {
+          "language=en": "English",
+          "language=es": "Spanish",
+          "language=it": "Italian",
+          "language=fr": "French",
+          "language=de": "German",
+          "language=fa": "Persian",
+          "language=gu": "Gujarati",
+          "language=hi": "Hindi",
+          "language=ja": "Japanese",
+          "language=ko": "Korean",
+          "language=pl": "Polish",
+          "language=pt-br": "Portuguese",
+          "language=ro": "Romanian",
+          "language=ru": "Russian",
+          "language=tr": "Turkish",
+          "language=zh-cn": "Chinese (Simplified)",
+          "language=zh-hk": "Chinese (Traditional)",
+          "language=zh-tw": "Chinese (Taiwan)"
+        }
+      }
+    ],
+    "number": "Number Format",
+    "time": "Time Format",
+    "date": "Date Format",
+    "timeZone": "Time Zone",
+    "connectToMobile": "Connect to Mobile",
+    "keyManagement": {
+      "title": "Security",
+      "description": "Easily add or delete passkeys to manage access to your account. Each passkey is vital for secure logins, ensuring only you can access your account.",
+      "add": "Add",
+      "management": {
+        "add": {
+          "title": "Add new credential",
+          "description": "Choose a credential. You can add or remove credentials later.",
+          "success": {
+            "title": "Credential added",
+            "description": "Your new credential has been successfully linked to your account."
+          },
+          "error": {
+            "title": "Failed to add credential",
+            "alreadyExists": "This credential is already linked to your account."
+          }
+        },
+        "delete": {
+          "title": "Delete credential",
+          "description": "Are you sure you want to delete this credential?",
+          "warning": "This action cannot be undone."
+        }
+      },
+      "email": {
+        "title": "Link Email",
+        "description": "We'll send a verification code to your email",
+        "alreadyLinked": "This email is already linked to your account"
+      }
+    }
+  },
+  "proSwap": {
+    "buy": "Buy",
+    "sell": "Sell"
+  },
+  "searchBar": {
+    "noResult": "No results found.",
+    "placeholder": {
+      "title": "Search for",
+      "transactions": "transactions",
+      "apps": "apps",
+      "blocks": "blocks",
+      "accounts": "accounts",
+      "usernames": "usernames",
+      "tokens": "tokens"
+    }
+  },
+  "accountMenu": {
+    "accounts": {
+      "otherAccounts": "Other Accounts",
+      "addAccount": "Add Account"
+    },
+    "wallet": "Wallet",
+    "noVaults": "You don't have any vaults yet",
+    "noWalletCoins": "You don't have any coins yet",
+    "spotPerp": "Spot ↔ Perp",
+    "perpAccount": "Perp Account",
+    "spotAccount": "Spot Account"
+  },
+  "dex": {
+    "feeTiers": {
+      "title": "Fee Tiers",
+      "description": "Your fee rate is based on total trading volume over the last 14 days.",
+      "tier": "Tier",
+      "volume14d": "14D Volume",
+      "perpsTaker": "Perps Taker",
+      "perpsMaker": "Perps Maker",
+      "customRate": "Custom Fee Rate",
+      "customRateDescription": "Your account has a custom fee rate that overrides the tier-based schedule."
+    },
+    "fee": "Fee",
+    "apy": "APY",
+    "tvl": "TVL",
+    "24h": "24h",
+    "searchFor": "Search for",
+    "tokens": "Tokens",
+    "swapping": "Swapping",
+    "contract": "Contract",
+    "convert": {
+      "swap": "Swap",
+      "title": "Convert",
+      "convertSuccessfully": "Order Executed",
+      "youGet": "You get",
+      "youSwap": "You swap",
+      "rate": "Rate",
+      "errors": {
+        "failure": "Swap failed",
+        "simulationFailed": "Not enough liquidity to fulfill the swap"
+      }
+    },
+    "protrade": {
+      "underDevelopment": "Feature in development",
+      "allOrdersCancelled": "All orders cancelled",
+      "orderFailed": "Order failed",
+      "orderType": [
+        {
+          "declarations": [
+            "input orderType"
+          ],
+          "selectors": [
+            "orderType"
+          ],
+          "match": {
+            "orderType=limit": "Limit",
+            "orderType=market": "Market",
+            "orderType=passive": "Passive"
+          }
+        }
+      ],
+      "spread": "Spread",
+      "openOrders": "Open Orders",
+      "tradeHistory": {
+        "title": "Trade History",
+        "pair": "Pair",
+        "direction": "Direction",
+        "type": "Type",
+        "price": "Price",
+        "size": "Size ({symbol})",
+        "tradeValue": "Trade Value",
+        "pnl": "PnL",
+        "funding": "Funding",
+        "fundingNotAvailable": "Funding data is not available for trades before April 30, 2025.",
+        "fees": "Fees",
+        "makerTaker": "Maker/Taker",
+        "maker": "Maker",
+        "taker": "Taker",
+        "makerTakerNotAvailable": "Maker/Taker data is not available for trades before April 22, 2025.",
+        "time": "Time",
+        "dateAndTime": "Date & Time"
+      },
+      "history": {
+        "id": "ID",
+        "pair": "Pair",
+        "price": "Price",
+        "time": "Time",
+        "limitPrice": "Limit Price",
+        "remaining": "Remaining ({symbol})",
+        "type": "Type",
+        "total": "Total ({symbol})",
+        "size": "Size ({symbol})",
+        "direction": "Direction",
+        "dateAndTime": "Date & Time",
+        "noOpenOrders": "No open orders yet"
+      },
+      "spot": {
+        "price": "Price",
+        "lastPrice": "Last",
+        "lastPriceTooltip": "Price of the last filled order",
+        "oraclePrice": "Oracle",
+        "oraclePriceTooltip": "Price reported by offchain oracle. Used for computing margin requirement, unrealized PnL, liquidation and TP/SL trigger.",
+        "24hChange": "24h Change",
+        "volume": "24h Volume",
+        "openInterest": "Open Interest",
+        "funding": "Funding / Countdown",
+        "oiLimitReached": "OI limit reached",
+        "oiLimitDescription": "No new positions can be opened",
+        "fees": "Fees",
+        "orderValue": "Order Value",
+        "orderSize": "Order Size",
+        "availableToTrade": "Available to trade",
+        "slippage": "Slippage",
+        "enableTrading": "Enable Trading",
+        "triggerAction": [
+          {
+            "declarations": [
+              "input action"
+            ],
+            "selectors": [
+              "action"
+            ],
+            "match": {
+              "action=buy": "Buy",
+              "action=sell": "Sell"
+            }
+          }
+        ],
+        "direction": [
+          {
+            "declarations": [
+              "input direction"
+            ],
+            "selectors": [
+              "direction"
+            ],
+            "match": {
+              "direction=bid": "Buy",
+              "direction=ask": "Sell"
+            }
+          }
+        ]
+      },
+      "searchPairTable": {
+        "name": "Name",
+        "price": "Price",
+        "24hChange": "24h Change",
+        "volume": "Volume"
+      },
+      "perps": {
+        "availableToTrade": "Available to Trade",
+        "currentPosition": "Current Position",
+        "size": "Size",
+        "price": "Price",
+        "timeInForce": "Time In Force",
+        "reduceOnly": "Reduce Only",
+        "tpsl": "Take Profit / Stop Loss",
+        "tpPrice": "TP Price",
+        "gain": "Gain",
+        "slPrice": "SL Price",
+        "loss": "Loss",
+        "tpslMarketSlippageNote": "Gain/Loss % is computed at the current price and your selected leverage. Actual ROI at trigger may vary with fill slippage.",
+        "orderValue": "Order Value",
+        "requiredMargin": "Required Margin",
+        "estLiqPrice": "Est. Liq. Price",
+        "slippage": "Slippage",
+        "slippageTooltip": "The worst fill price you'll accept, calculated as a percentage from the mark price",
+        "slippageDisplay": "Est: 0% / Max: {max}%",
+        "adjustMaxSlippage": "Adjust Max Slippage",
+        "adjustMaxSlippageDescription": "Maximum price deviation from the mark price you're willing to accept on market fills. Applies to all perps market orders, TP/SL, and position closes.",
+        "maxSlippage": "Max Slippage",
+        "slippageOutOfRange": "Slippage must be between 0% and {max}%",
+        "slippageMaxDecimals": "Maximum {max} decimal places allowed",
+        "fees": "Fees",
+        "feesTooltipTaker": "Taker orders pay a {rate} fee.",
+        "feesTooltipMaker": "Maker orders pay a {rate} fee.",
+        "feesLearnMore": "Learn More",
+        "accountEquity": "Account Equity",
+        "maxLeverage": "Max Leverage",
+        "unrealizedPnl": "Unrealized PnL",
+        "triggerAction": [
+          {
+            "declarations": [
+              "input action"
+            ],
+            "selectors": [
+              "action"
+            ],
+            "match": {
+              "action=buy": "Buy",
+              "action=sell": "Sell"
+            }
+          }
+        ],
+        "errors": {
+          "exceedsMargin": "Exceeds available margin",
+          "exceedsClosable": "Exceeds closable position size",
+          "reduceOnlyNoPosition": "Reduce-only requires an opposing position",
+          "minOrderSize": "Min order size: ${minOrderSize}",
+          "tpAboveForLongs": "TP must be above reference price for longs",
+          "tpBelowForShorts": "TP must be below reference price for shorts",
+          "slBelowForLongs": "SL must be below reference price for longs",
+          "slAboveForShorts": "SL must be above reference price for shorts"
+        }
+      },
+      "positions": {
+        "title": "Positions",
+        "pair": "Pair",
+        "side": "Side",
+        "size": "Size",
+        "positionValue": "Position Value",
+        "entryPrice": "Entry Price",
+        "markPrice": "Mark Price",
+        "pnl": "PnL",
+        "tpsl": "TP/SL",
+        "margin": "Margin",
+        "liqPrice": "Liq. Price",
+        "funding": "Funding",
+        "long": "Long",
+        "short": "Short",
+        "edit": "Edit",
+        "close": "Close",
+        "closeAll": "Close All",
+        "noOpenPositions": "No open positions"
+      },
+      "orders": {
+        "market": "Market",
+        "pair": "Pair",
+        "side": "Side",
+        "type": "Type",
+        "price": "Price",
+        "size": "Size",
+        "orderValue": "Order Value",
+        "filled": "Filled",
+        "reduceOnly": "Reduce Only",
+        "tpsl": "TP/SL",
+        "showAllPairs": "Show all pairs",
+        "long": "Long",
+        "short": "Short",
+        "buy": "Buy",
+        "sell": "Sell",
+        "limit": "Limit",
+        "spot": "Spot",
+        "perp": "Perp"
+      }
+    },
+    "errors": {
+      "minimumOrderSize": "Order size too small. Minimum order size is {minOrderSize} {symbol}"
+    }
+  },
+  "referral": {
+    "mobileTitle": "Referral Program",
+    "welcome": "Welcome to Velox's",
+    "title": "REFERRAL PROGRAM",
+    "readRules": "Read Rules",
+    "affiliate": "Affiliate",
+    "trader": "Trader",
+    "stats": {
+      "commissionRate": "Commission Split (You / Referee)",
+      "commissionRateTooltipTotal": "Total commission: {rate}",
+      "commissionRateTooltipYou": "You: {rate}",
+      "commissionRateTooltipReferee": "Referee: {rate}",
+      "totalCommission": "Total Commission",
+      "totalCommissionTooltip": "Earnings from your referees' fees",
+      "totalReferralVolume": "Total Referral Volume",
+      "totalReferralVolumeTooltip": "Volume of all your referees",
+      "totalReferees": "Total Referees",
+      "totalActiveReferees": "Total Active Referees",
+      "myReferralLink": "My Referral Link",
+      "myReferralCode": "My Referral Code",
+      "rebateRate": "Rebate Rate",
+      "totalRebates": "Total Rebates",
+      "totalTradingVolume": "Total Trading Volume",
+      "yourReferrer": "Your Referrer",
+      "notLoggedIn": "You are not logged in.",
+      "volumeUntilTier1": "{amount} volume until Tier 1",
+      "volumeUntilNextTier": "{amount} volume until {tier}",
+      "maxTierReached": "Max tier reached",
+      "volumeUntilTier2": "{amount} volume until Tier 2"
+    },
+    "affiliateSection": {
+      "unlockTitle": "Unlock your referral code with $10k volume!",
+      "unlockDescription": "Invite your friends and earn up to {percent} commission.",
+      "setFeeShareTitle": "Set your fee share ratio to become a referrer!",
+      "setFeeShareDescription": "You've reached the volume threshold. Set your fee share ratio to activate your referral code and start earning.",
+      "setFeeShareRate": "Set Fee Share Ratio",
+      "tradeNow": "Trade now",
+      "logIn": "Log In"
+    },
+    "traderSection": {
+      "referTitle": "Refer friends and unlock more rewards together!",
+      "referDescription": "Get up to {percent} fee rebates by submitting your friend's referral code!",
+      "referralCodeLabel": "Referral Code",
+      "referralCodePlaceholder": "Enter your friend's referral code",
+      "submit": "Submit"
+    },
+    "commission": {
+      "title": "Commission Rates",
+      "myCommission": "My Commission",
+      "myReferees": "My Referees",
+      "statistics": "Statistics",
+      "logInToView": "Log in to view your data",
+      "noReferees": "No referees yet",
+      "noRebates": "No rebate history yet",
+      "loadingChart": "Loading chart...",
+      "columns": {
+        "tier": "Tier",
+        "tradingVolume": "Trading Volume",
+        "thirtyDayReferralVolume": "30-day Referral Volume",
+        "commission": "Commission",
+        "myCommission": "My Commission",
+        "referralVolume": "Referral Volume",
+        "activeUsers": "Active Users",
+        "date": "Date",
+        "userName": "User Name",
+        "totalVolume": "Total Volume",
+        "totalCommission": "Total Commission",
+        "dateJoined": "Date Joined"
+      }
+    },
+    "rebate": {
+      "myRebates": "My Rebates",
+      "statistics": "Statistics",
+      "columns": {
+        "rebates": "Rebates",
+        "tradingVolume": "Trading Volume",
+        "date": "Date"
+      }
+    },
+    "period": {
+      "sevenDays": "Period: 7D",
+      "thirtyDays": "Period: 30D",
+      "ninetyDays": "Period: 90D"
+    },
+    "metric": {
+      "commission": "Commission",
+      "volume": "Volume"
+    },
+    "editFeeShare": {
+      "title": "Edit Commission Rate",
+      "description": "You can change your commission rate only once. You cannot share more than 50% of your commission with your referees.",
+      "yourCommissionRate": "Your commission rate:",
+      "youReceive": "You receive",
+      "refereeReceives": "Referee receives",
+      "errorDecrease": "Share ratio can only be increased, not decreased.",
+      "errorExceedsMax": "Cannot share more than 50% with referees.",
+      "errorExceedsCommission": "You can't share more than your total commission rate",
+      "saving": "Saving...",
+      "save": "Save",
+      "current": "current"
+    },
+    "chart": {
+      "loading": "Loading...",
+      "noData": "No data available"
+    },
+    "submitting": "..."
+  },
+  "points": {
+    "mobileTitle": "Points",
+    "campaign": "Campaign",
+    "campaignStartsOn": "Campaign starts on {date}",
+    "header": {
+      "welcome": "Welcome to Velox's",
+      "title": "POINTS PROGRAM",
+      "titlePoints": "PO{icon}NTS",
+      "titleProgram": "PROGRAM",
+      "readRules": "Read Rules",
+      "share": "Share",
+      "myPoints": "My points",
+      "myVolume": "My volume",
+      "myRank": "My rank",
+      "points": "Points",
+      "currentEpoch": "Epoch",
+      "endsIn": "Ends in",
+      "startsIn": "Starts in",
+      "epoch": {
+        "title": "Epoch",
+        "description": "An epoch is a one-week period during which points are accumulated"
+      },
+      "tradingPoints": {
+        "title": "Trading Points",
+        "description": "Points earned from organic trading activity"
+      },
+      "lpPoints": {
+        "title": "LP Points",
+        "description": "Points earned from providing liquidity"
+      },
+      "referralPoints": {
+        "title": "Referral Points",
+        "description": "Points earned from referring other users"
+      },
+      "earnedLabel": "Earned",
+      "predictedLabel": "Predicted for current epoch"
+    },
+    "tabs": {
+      "profile": "Profile",
+      "rewards": "Rewards",
+      "leaderboard": "Leaderboard"
+    },
+    "leaderboard": {
+      "columns": {
+        "ranking": "Ranking",
+        "user": "User",
+        "volume": "Volume",
+        "pnl": "PnL",
+        "points": "Points"
+      },
+      "timeframes": {
+        "allTime": "All Time",
+        "oneWeek": "1W",
+        "twoWeeks": "2W",
+        "oneMonth": "1M"
+      },
+      "you": "(You)",
+      "userFallback": "User #{index}"
+    },
+    "profile": {
+      "pointHistory": "Point History",
+      "getStarted": "Get Started!",
+      "loading": "Loading point history...",
+      "noHistory": "No point history yet",
+      "columns": {
+        "action": "Action",
+        "epoch": "Epoch",
+        "date": "Date",
+        "points": "Points"
+      },
+      "epochLabel": "Epoch {number}",
+      "activities": {
+        "provideLiquidity": "Provide Liquidity",
+        "trade": "Trade",
+        "referral": "Referral"
+      },
+      "xPoints": "{points} Points",
+      "compensation": "Attack Compensation",
+      "predicted": "Predicted",
+      "inProgress": "In progress"
+    },
+    "rewards": {
+      "boxes": {
+        "title": "My boxes",
+        "open": "Open",
+        "openAll": "Open All",
+        "tiers": {
+          "bronze": "Bronze",
+          "silver": "Silver",
+          "gold": "Gold",
+          "crystal": "Crystal"
+        },
+        "tooltips": {
+          "bronze": "Receive a Bronze chest for every $25k volume.",
+          "silver": "Receive a Silver chest for every $100k volume.",
+          "gold": "Receive a Gold chest for every $250k volume.",
+          "crystal": "Receive a Crystal chest for every $500k volume."
+        },
+        "volumeUntilNext": "{amount} volume until next {tier} Box",
+        "notLoggedIn": "You are not logged in."
+      },
+      "nfts": {
+        "title": "My NFTs",
+        "rarities": {
+          "common": "Common",
+          "uncommon": "Uncommon",
+          "rare": "Rare",
+          "epic": "Epic",
+          "legendary": "Legendary",
+          "mythic": "Mythic"
+        }
+      }
+    },
+    "referral": {
+      "faqs": {
+        "title": "FAQs",
+        "question1": "How do I unlock a referral link?",
+        "answer1": "You must first achieve $10,000 in traded volume. Then, create your referral link by setting the fee share ratio.",
+        "question2": "Can I earn points by referring users?",
+        "answer2": "Yes. You will get 1 point for every 5 points earned by your direct referrals, and 1 point for every 20 points earned by your indirect referrals.",
+        "question3": "Is there a limit to how much of my commission I can share with my referees?",
+        "answer3": "Yes. Referrers cannot share more than 50% of their total commission with their referees.",
+        "question4": "Why am I not allowed to reduce my fee share ratio?",
+        "answer4": "A common \"rug pull\" is a referrer sets a high fee share ratio to lure referees in, then secretly tune down the ratio. This is to prevent this exact scenario.",
+        "question5": "What is the difference between \"commission rate\" and \"fee share ratio\"?",
+        "answer5": "Commission rate: how big a portion of trading fee that protocol gives you.\nFee share ratio: how big a portion of the commission you receive, you give to your referees.",
+        "answer5Example": "Example:",
+        "answer5Step1": "You trade more than $10k but less than $10M volume. This grants you a 10% commission rate.",
+        "answer5Step2": "You set your fee share ratio to 30%.",
+        "answer5Step3": "A referee of yours makes a trade, paying $100 in fees.",
+        "answer5Step4": "You get $100 × 10% = $10 in commission.",
+        "answer5Step5": "You give $10 × 30% = $3 of that commission to the referee.",
+        "answer5Step6": "Net: the referee pays $100 - $3 = $97 in fees; you earn $10 - $3 = $7."
+      }
+    },
+    "boosters": {
+      "title": "Boosters",
+      "description": "A limited-time points multiplier to reward early testnet users.",
+      "linkEvmWallet": "Link EVM Wallet",
+      "pointsBoost": "+{pointsBoost}% Points",
+      "toast": {
+        "successTitle": "Wallet Linked",
+        "successDescription": "Your EVM wallet has been linked successfully.",
+        "errorTitle": "Linking Failed",
+        "errorDescription": "Failed to link your EVM wallet. Please try again.",
+        "rateLimitTitle": "Address Already Linked",
+        "rateLimitDescription": "This address was linked recently. You can relink it in {seconds} seconds.",
+        "noOatsTitle": "No OATs Found",
+        "noOatsDescription": "This address doesn't have any Velox OATs. Make sure you've minted your OATs on Galxe."
+      },
+      "oats": {
+        "hurrah": "The Last Hurrah",
+        "trader": "Testnet Trader",
+        "wizard": "Testnet Wizard",
+        "supporter": "Early Supporter"
+      }
+    },
+    "leagues": {
+      "title": "Leagues",
+      "subtitle": "Earn points to climb your way up!",
+      "levels": [
+        {
+          "declarations": [
+            "input level"
+          ],
+          "selectors": [
+            "level"
+          ],
+          "match": {
+            "level=wood": "Wood",
+            "level=iron": "Iron",
+            "level=gold": "Gold",
+            "level=platinum": "Platinum",
+            "level=diamond": "Diamond",
+            "level=master": "Master",
+            "level=grandmaster": "Grandmaster"
+          }
+        }
+      ]
+    }
+  },
+  "errors": {
+    "validations": {
+      "amountIsRequired": "Amount is required",
+      "amountIsZero": "Amount must be greater than 0",
+      "insufficientFunds": "Insufficient funds",
+      "invalidAddress": "Invalid address",
+      "usernameRule": "Username must be no more than 15 lowercase alphanumeric (a-z|0-9) or underscore"
+    },
+    "failureRequest": "Couldn't complete the request"
+  },
+  "devtools": {
+    "title": "Devtools",
+    "description": "This is a tool for developers to test and debug Velox.",
+    "msgBuilder": {
+      "execute": "Execute",
+      "query": "Query",
+      "simulate": "Simulate"
+    }
+  },
+  "accountCard": {
+    "addressWarning": {
+      "title": "This Is Not an Ethereum Address",
+      "doNot": "Do not",
+      "bullet1": "withdraw directly from a Centralized Exchange (CEX) to this address.",
+      "bullet2": "send funds from Ethereum or other EVM chains to this address.",
+      "descriptionPre": "To fund your Velox account, use the",
+      "descriptionLink": "Deposit app",
+      "descriptionPost": "instead.",
+      "button": "I understand"
+    }
+  }
+}

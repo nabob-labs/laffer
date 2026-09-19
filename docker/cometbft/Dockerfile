@@ -1,4 +1,4 @@
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 LABEL org.opencontainers.image.description="CometBFT builder for Velox"
 LABEL org.opencontainers.image.source="https://github.com/nabob-labs/laffer"
@@ -7,7 +7,7 @@ LABEL org.opencontainers.image.source="https://github.com/nabob-labs/laffer"
 RUN apt update && apt install -y git make
 
 # Git tag of the cometbft repo.
-ARG COMETBFT_GIT_TAG="v0.39.3"
+ARG COMETBFT_GIT_TAG="v0.38.21"
 ENV COMETBFT_GIT_TAG=$COMETBFT_GIT_TAG
 
 # Download cometbft source code, build, then delete.
@@ -20,7 +20,7 @@ FROM debian:bookworm-slim AS runtime
 LABEL org.opencontainers.image.description="CometBFT runtime for Velox"
 
 # Install dependencies.
-RUN apt update && apt upgrade -y && apt install -y curl
+RUN apt update && apt install -y curl
 
 # I changed my mind, adding a user with a specific UID/GID (in this case
 # 1001/1001) is a pain because the files created from within that container

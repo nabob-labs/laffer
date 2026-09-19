@@ -1,0 +1,36 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-genesis"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+metrics = ["velox-dex/metrics", "velox-oracle/metrics", "velox-perps/metrics", "velox-taxman/metrics"]
+
+[dependencies]
+anyhow                = { workspace = true }
+velox-account         = { workspace = true, features = ["library"] }
+velox-account-factory = { workspace = true, features = ["library"] }
+velox-bank            = { workspace = true, features = ["library"] }
+velox-dex             = { workspace = true, features = ["library", "tracing"] }
+velox-gateway         = { workspace = true, features = ["library"] }
+velox-oracle          = { workspace = true, features = ["library"] }
+velox-order-book      = { workspace = true }
+velox-perps           = { workspace = true, features = ["library", "tracing"] }
+velox-taxman          = { workspace = true, features = ["library"] }
+velox-types           = { workspace = true }
+velox-vesting         = { workspace = true, features = ["library"] }
+velox-warp            = { workspace = true, features = ["library"] }
+bolt                  = { workspace = true }
+bolt-vm-rust          = { workspace = true }
+hyperlane-ism         = { workspace = true, features = ["library"] }
+hyperlane-mailbox     = { workspace = true, features = ["library"] }
+hyperlane-types       = { workspace = true }
+hyperlane-va          = { workspace = true, features = ["library"] }
+pyth-types            = { workspace = true }
+serde                 = { workspace = true }

@@ -56,7 +56,7 @@ impl CandleInterval {
                 let start_of_day = ts.date_naive().and_hms_opt(0, 0, 0).unwrap();
                 let monday = start_of_day - Duration::days(days_since_sunday);
                 Utc.from_utc_datetime(&monday)
-            }
+            },
             _ => {
                 let interval_secs = self.duration().num_seconds();
                 assert!(interval_secs > 0, "Interval duration must be > 0");
@@ -64,7 +64,7 @@ impl CandleInterval {
                 let ts_secs = ts.timestamp();
                 let aligned = ts_secs - (ts_secs % interval_secs);
                 DateTime::from_timestamp(aligned, 0).expect("valid aligned timestamp")
-            }
+            },
         }
     }
 

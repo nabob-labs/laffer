@@ -1,11 +1,11 @@
-#[cfg(feature = "metrics")]
-use {crate::metrics::GaugeGuard, std::sync::Arc};
 use {
-    crate::subscription_limiter::{acquire_subscription, guard_subscription_stream},
     async_graphql::{futures_util::stream::Stream, *},
-    futures_util::stream::{self, StreamExt},
     velox_indexer_sql::entity::perps_trade::PerpsTrade,
+    futures_util::stream::{self, StreamExt},
+    bolt_httpd::subscription_limiter::{acquire_subscription, guard_subscription_stream},
 };
+#[cfg(feature = "metrics")]
+use {bolt_httpd::metrics::GaugeGuard, std::sync::Arc};
 
 #[derive(Default)]
 pub struct PerpsTradeSubscription;
@@ -20,7 +20,7 @@ impl PerpsTradeSubscription {
         #[graphql(name = "pairId")] pair_id: String,
     ) -> Result<impl Stream<Item = PerpsTrade> + 'a> {
         let sub_guard = acquire_subscription(ctx)?;
-        let app_ctx = ctx.data::<crate::context::FullContext>()?;
+        let app_ctx = ctx.data::<crate::context::Context>()?;
         let trade_cache = app_ctx.perps_trade_cache.clone();
 
         #[cfg(feature = "metrics")]

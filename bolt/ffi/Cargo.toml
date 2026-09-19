@@ -1,0 +1,16 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "bolt-ffi"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+borsh           = { workspace = true, features = ["derive"] }
+error-backtrace = { workspace = true }
+bolt-types      = { workspace = true }
+serde           = { workspace = true }

@@ -2,7 +2,7 @@ use sea_orm::entity::prelude::*;
 #[cfg(feature = "async-graphql")]
 use {
     async_graphql::{ComplexObject, Context, Result, SimpleObject},
-    velox_primitives::Timestamp,
+    bolt_types::Timestamp,
 };
 
 #[derive(
@@ -24,7 +24,7 @@ pub struct Model {
     #[sea_orm(unique)]
     pub address: String,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::serde_iso8601")]
+    #[serde(with = "indexer_sql::serde_iso8601")]
     pub created_at: DateTime,
     pub created_block_height: i64,
     pub created_tx_hash: String,

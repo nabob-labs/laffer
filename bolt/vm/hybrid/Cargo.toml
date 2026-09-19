@@ -1,0 +1,31 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "bolt-vm-hybrid"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+# Implement `bolt_testing::TestVm` trait for `HybridVm`, so that it can be used in
+# the test suite.
+testing = ["dep:bolt-testing"]
+
+[dependencies]
+error-backtrace = { workspace = true }
+bolt-app        = { workspace = true }
+bolt-testing    = { workspace = true, optional = true }
+bolt-types      = { workspace = true }
+bolt-vm-rust    = { workspace = true }
+bolt-vm-wasm    = { workspace = true }
+thiserror       = { workspace = true }
+
+[dev-dependencies]
+bolt-db-memory = { workspace = true }
+bolt-math      = { workspace = true }
+bolt-tester    = { workspace = true, features = ["library"] }
+bolt-vm-hybrid = { workspace = true, features = ["testing"] }
+tracing        = { workspace = true }

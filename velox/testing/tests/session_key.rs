@@ -1,23 +1,23 @@
 use {
-    session_account::SessionAccount,
-    velox_primitives::{Addressable, Coin, Coins, Duration, ResultExt},
     velox_testing::setup_test_naive,
     velox_types::constants::usdc,
+    bolt::{Addressable, Coin, Coins, Duration, ResultExt},
+    session_account::SessionAccount,
 };
 
 mod session_account {
     use {
-        k256::ecdsa::SigningKey,
-        std::ops::{Deref, DerefMut},
-        velox_primitives::{
+        velox_testing::{TestAccount, create_signature, generate_random_key},
+        velox_types::auth::{
+            Credential, Metadata, SessionCredential, SessionInfo, SignDoc, Signature,
+            StandardCredential,
+        },
+        bolt::{
             Addr, Addressable, ByteArray, Defined, JsonSerExt, Message, NonEmpty, SignData, Signer,
             StdResult, Timestamp, Tx, Undefined, UnsignedTx,
         },
-        velox_testing::{TestAccount, create_signature, generate_random_key},
-        velox_types::auth::{
-            Credential, Metadata, Nonce, SessionCredential, SessionInfo, SignDoc, Signature,
-            StandardCredential,
-        },
+        k256::ecdsa::SigningKey,
+        std::ops::{Deref, DerefMut},
     };
 
     /// Contains both SessionInfo and the SessionInfo signed with the user keys.
@@ -31,10 +31,6 @@ mod session_account {
         pub account: TestAccount,
         session_sk: SigningKey,
         session_pk: ByteArray<33>,
-        /// Per-session-key nonce, tracked independently of the account's
-        /// standard (master-key) nonce. Initialized from the account's next
-        /// nonce so the first session tx clears the migration floor.
-        pub session_nonce: Nonce,
         /// Contains both SessionInfo and the SessionInfo signed with the user keys.
         session_buffer: T,
     }
@@ -44,7 +40,6 @@ mod session_account {
             let (session_sk, session_pk) = generate_random_key();
 
             Self {
-                session_nonce: account.nonce,
                 account,
                 session_sk,
                 session_pk,
@@ -59,7 +54,6 @@ mod session_account {
             account: TestAccount,
         ) -> SessionAccount<Defined<SessionInfoBuffer>> {
             SessionAccount::<Defined<SessionInfoBuffer>> {
-                session_nonce: account.nonce,
                 account,
                 session_sk: other.session_sk.clone(),
                 session_pk: other.session_pk,
@@ -76,9 +70,6 @@ mod session_account {
             let (session_sk, session_pk) = generate_random_key();
 
             Ok(SessionAccount {
-                // A fresh session key has an empty on-chain window, so
-                // re-initialize from the account's next nonce to clear the floor.
-                session_nonce: self.account.nonce,
                 account: self.account,
                 session_sk,
                 session_pk,
@@ -107,7 +98,6 @@ mod session_account {
             };
 
             Ok(SessionAccount {
-                session_nonce: self.session_nonce,
                 account: self.account,
                 session_sk: self.session_sk,
                 session_pk: self.session_pk,
@@ -154,7 +144,7 @@ mod session_account {
             let data = Metadata {
                 user_index: self.user_index(),
                 chain_id: chain_id.to_string(),
-                nonce: self.session_nonce,
+                nonce: self.nonce,
                 expiry: None,
             };
 
@@ -179,7 +169,7 @@ mod session_account {
                 authorization: standard_credential,
             });
 
-            self.session_nonce += 1;
+            self.nonce += 1;
 
             Ok(Tx {
                 sender: self.address(),
@@ -192,8 +182,8 @@ mod session_account {
     }
 }
 
-#[tokio::test]
-async fn session_key() {
+#[test]
+fn session_key() {
     let (mut suite, accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     suite.block_time = Duration::from_seconds(10);
@@ -213,7 +203,6 @@ async fn session_key() {
                 accounts.user1.address(),
                 Coin::new(usdc::DENOM.clone(), 100).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -226,9 +215,8 @@ async fn session_key() {
                 accounts.user1.address(),
                 Coin::new(usdc::DENOM.clone(), 100).unwrap(),
             )
-            .await
             .should_fail_with_error("session expired at Duration(Dec(Int(31536100000000000))");
-        owner.session_nonce -= 1;
+        owner.nonce -= 1;
 
         suite.block_time = Duration::from_seconds(10);
     }
@@ -248,7 +236,6 @@ async fn session_key() {
                 accounts.user1.address(),
                 Coin::new(usdc::DENOM.clone(), 100).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -259,7 +246,6 @@ async fn session_key() {
     {
         let owner2 = owner
             .register_new_account(&mut suite, contracts.account_factory, Coins::default())
-            .await
             .unwrap();
 
         // Refresh the session key signature
@@ -281,7 +267,6 @@ async fn session_key() {
                 owner2.address(),
                 Coin::new(usdc::DENOM.clone(), 100).unwrap(),
             )
-            .await
             .should_succeed();
 
         // The new account should be able to send coins to the relayer
@@ -291,7 +276,6 @@ async fn session_key() {
                 accounts.user1.address(),
                 Coin::new(usdc::DENOM.clone(), 100).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -313,109 +297,6 @@ async fn session_key() {
                 accounts.user1.address(),
                 Coin::new(usdc::DENOM.clone(), 100).unwrap(),
             )
-            .await
             .should_succeed();
     }
-}
-
-/// Two session keys on the _same_ account each get an independent nonce window,
-/// so independent bots don't collide even when they use the same nonce value.
-/// Under the old shared window the second bot's transaction would be rejected as
-/// "nonce is already seen".
-#[tokio::test]
-async fn session_keys_have_independent_nonce_windows() {
-    let (mut suite, accounts, ..) = setup_test_naive(Default::default());
-
-    suite.block_time = Duration::from_seconds(1);
-
-    let expire_at = suite.block.timestamp + Duration::from_seconds(1000);
-
-    let mut bot1 = SessionAccount::new(accounts.owner.clone())
-        .sign_session_key(&suite.chain_id, expire_at)
-        .unwrap();
-    let mut bot2 = SessionAccount::new(accounts.owner.clone())
-        .sign_session_key(&suite.chain_id, expire_at)
-        .unwrap();
-
-    // Both bots start from the same nonce value.
-    assert_eq!(bot1.session_nonce, bot2.session_nonce);
-
-    // Interleave several rounds; each bot's window advances independently and
-    // neither collides with the other.
-    for _ in 0..3 {
-        suite
-            .transfer(
-                &mut bot1,
-                accounts.user1.address(),
-                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
-            )
-            .await
-            .should_succeed();
-
-        suite
-            .transfer(
-                &mut bot2,
-                accounts.user1.address(),
-                Coin::new(usdc::DENOM.clone(), 100).unwrap(),
-            )
-            .await
-            .should_succeed();
-    }
-}
-
-/// A session key's first nonce must exceed the account's standard high-water
-/// mark. This rejects replays of pre-split session transactions (whose nonces
-/// lived in the shared `SEEN_NONCES`) while letting `max + 1` through.
-#[tokio::test]
-async fn first_session_nonce_must_clear_account_high_water_mark() {
-    let (mut suite, accounts, ..) = setup_test_naive(Default::default());
-
-    suite.block_time = Duration::from_seconds(1);
-
-    let mut owner = accounts.owner;
-
-    // Raise the account's standard high-water mark with a few standard txs.
-    for _ in 0..3 {
-        suite
-            .transfer(
-                &mut owner,
-                accounts.user1.address(),
-                Coin::new(usdc::DENOM.clone(), 1).unwrap(),
-            )
-            .await
-            .should_succeed();
-    }
-
-    // The last standard nonce used is the high-water mark (the floor).
-    let high_water_mark = owner.nonce - 1;
-
-    let mut bot = SessionAccount::new(owner.clone())
-        .sign_session_key(
-            &suite.chain_id,
-            suite.block.timestamp + Duration::from_seconds(1000),
-        )
-        .unwrap();
-
-    // A first session nonce at or below the high-water mark is rejected: this is
-    // exactly the pre-split replay that the floor is designed to block.
-    bot.session_nonce = high_water_mark;
-    suite
-        .transfer(
-            &mut bot,
-            accounts.user1.address(),
-            Coin::new(usdc::DENOM.clone(), 1).unwrap(),
-        )
-        .await
-        .should_fail_with_error("first session nonce is too old");
-
-    // `high_water_mark + 1` (what a spec-compliant client picks) is accepted.
-    bot.session_nonce = high_water_mark + 1;
-    suite
-        .transfer(
-            &mut bot,
-            accounts.user1.address(),
-            Coin::new(usdc::DENOM.clone(), 1).unwrap(),
-        )
-        .await
-        .should_succeed();
 }

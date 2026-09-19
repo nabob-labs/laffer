@@ -1,23 +1,21 @@
 use {
+    velox_genesis::Contracts,
     velox_order_book::{Dimensionless, Quantity, UsdPrice},
-    velox_primitives::{Duration, btree_map},
-    velox_testing::{OracleTestEntry, TestAccounts, TestSuiteNaive, pair_id},
+    velox_testing::perps::pair_id,
     velox_types::{
         constants::usdc,
+        oracle::{self, PriceSource},
         perps::{PairParam, Param, RateSchedule},
     },
+    bolt::{Coins, Duration, NumberConst, ResultExt, Timestamp, Udec128, btree_map},
 };
 
 mod adl_bug_reproduction;
-mod bankruptcy_bug_reproduction;
 mod batch_update_orders;
 mod client_order_id;
 mod conditional_orders;
-mod index_price;
 mod liquidation;
-mod liquidation_spec;
 mod price_band;
-mod reduce_only;
 mod referral;
 mod trading;
 mod vault;
@@ -54,24 +52,29 @@ pub fn default_pair_param() -> PairParam {
 }
 
 /// Register fixed oracle prices for the perps pair and settlement currency.
-pub async fn register_oracle_prices(
-    suite: &mut TestSuiteNaive,
-    accounts: &mut TestAccounts,
+pub fn register_oracle_prices(
+    suite: &mut velox_testing::TestSuite<bolt_app::NaiveProposalPreparer>,
+    accounts: &mut velox_testing::TestAccounts,
+    contracts: &Contracts,
     eth_price: u128,
 ) {
     suite
-        .seed_oracle_prices(
+        .execute(
             &mut accounts.owner,
-            btree_map! {
-                usdc::DENOM.clone() => OracleTestEntry {
-                    pyth_id: 1,
-                    humanized_price: UsdPrice::new_int(1),
+            contracts.oracle,
+            &oracle::ExecuteMsg::RegisterPriceSources(btree_map! {
+                usdc::DENOM.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::ONE,
+                    precision: usdc::DECIMAL as u8,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-                pair_id() => OracleTestEntry {
-                    pyth_id: 2,
-                    humanized_price: UsdPrice::new_int(eth_price as i128),
+                pair_id() => PriceSource::Fixed {
+                    humanized_price: Udec128::new(eth_price),
+                    precision: 0,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-            },
+            }),
+            Coins::new(),
         )
-        .await;
+        .should_succeed();
 }

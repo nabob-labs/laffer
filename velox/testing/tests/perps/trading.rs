@@ -1,20 +1,19 @@
 use {
     crate::{default_pair_param, default_param, register_oracle_prices},
-    std::collections::BTreeMap,
-    velox_math::Uint128,
     velox_order_book::{
-        ChildOrder, Dimensionless, LiquidityDepthResponse, OrderId, OrderKind, OrderPersisted,
-        Quantity, QueryOrdersByUserResponseItem, TimeInForce, UsdPrice, UsdValue,
+        ChildOrder, Dimensionless, LiquidityDepthResponse, OrderId, OrderKind, Quantity,
+        QueryOrdersByUserResponseItem, TimeInForce, UsdPrice, UsdValue,
     },
-    velox_primitives::{
-        Addressable, CheckedContractEvent, Coins, Inner, JsonDeExt, QuerierExt, ResultExt,
-        SearchEvent, btree_map, btree_set,
-    },
-    velox_testing::{TestOption, TestSuiteNaive, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
         perps::{self, OrderFilled, PairParam, Param, RateSchedule, UserState},
     },
+    bolt::{
+        Addressable, CheckedContractEvent, Coins, Inner, JsonDeExt, QuerierExt, ResultExt,
+        SearchEvent, Uint128, btree_map, btree_set,
+    },
+    std::collections::BTreeMap,
 };
 
 /// Covers: deposit, market full fill, withdraw success, withdraw fail.
@@ -26,12 +25,12 @@ use {
 /// | 3    | Trader market buys 10 ETH           | fee = 10 × $2,000 × 0.1% = $20                                | position: 10 ETH long @ $2,000; margin = $9,980; ask removed |
 /// | 4    | Trader withdraws $7,000             | equity=$9,980, used_IM=10×$2,000×10%=$2,000, available=$7,980 | succeeds; margin = $2,980                                    |
 /// | 5    | Trader withdraws $2,000             | available = $2,980 - $2,000 = $980                            | fails: "exceeds available margin"                            |
-#[tokio::test]
-async fn trading_lifecycle() {
+#[test]
+fn trading_lifecycle() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     // Register oracle prices: ETH = $2,000, USDC = $1.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -47,17 +46,13 @@ async fn trading_lifecycle() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Verify trader's margin = $10,000.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -74,7 +69,6 @@ async fn trading_lifecycle() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -95,17 +89,13 @@ async fn trading_lifecycle() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify ask exists on the book.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     assert_eq!(orders.len(), 1, "maker should have 1 ask");
@@ -131,17 +121,13 @@ async fn trading_lifecycle() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify position and margin.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let pos = state
@@ -159,12 +145,9 @@ async fn trading_lifecycle() {
 
     // Maker's ask should be removed.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     assert!(
@@ -186,17 +169,13 @@ async fn trading_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify margin = $9,980 - $7,000 = $2,980.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -216,7 +195,6 @@ async fn trading_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("exceeds available margin");
 }
 
@@ -228,12 +206,12 @@ async fn trading_lifecycle() {
 /// | 2    | Maker A places ask: 5 ETH @ $2,000  | —                                  | —                                                                                                                                                      |
 /// | 3    | Trader limit buys 10 ETH @ $2,000   | 5 filled vs maker, 5 rests as bid  | position: 5 ETH long @ $2,000; fee = $10; margin = $9,990; reserved_margin = 5x$2,000x10% = $1,000 (for resting 5); open_order_count = 1; bid on book  |
 /// | 4    | Trader cancels the resting order    | —                                  | reserved_margin = $0; open_order_count = 0; bid removed from book; position unchanged (still 5 ETH)                                                    |
-#[tokio::test]
-async fn limit_order_partial_fill_and_cancel() {
+#[test]
+fn limit_order_partial_fill_and_cancel() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     // Register oracle prices: ETH = $2,000, USDC = $1.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -248,7 +226,6 @@ async fn limit_order_partial_fill_and_cancel() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -262,7 +239,6 @@ async fn limit_order_partial_fill_and_cancel() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -283,7 +259,6 @@ async fn limit_order_partial_fill_and_cancel() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -310,17 +285,13 @@ async fn limit_order_partial_fill_and_cancel() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify position: 5 ETH long @ $2,000, margin = $9,990.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let pos = state
@@ -348,12 +319,9 @@ async fn limit_order_partial_fill_and_cancel() {
 
     // Verify bid exists on the book.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert_eq!(orders.len(), 1, "trader should have 1 resting bid");
@@ -373,17 +341,13 @@ async fn limit_order_partial_fill_and_cancel() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify reserved_margin = $0 and open_order_count = 0.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -396,12 +360,9 @@ async fn limit_order_partial_fill_and_cancel() {
 
     // Verify bid removed from book.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert!(orders.is_empty(), "orders should be empty after cancel");
@@ -419,11 +380,11 @@ async fn limit_order_partial_fill_and_cancel() {
 /// Verify that liquidity depth bookkeeping tracks resting orders correctly
 /// across four code paths: order placement, self-trade prevention (EXPIRE_MAKER),
 /// fill, and cancel-all.
-#[tokio::test]
-async fn liquidity_depth_tracking() {
+#[test]
+fn liquidity_depth_tracking() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -443,7 +404,6 @@ async fn liquidity_depth_tracking() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Deposit margin for both users.
@@ -454,7 +414,6 @@ async fn liquidity_depth_tracking() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -464,19 +423,15 @@ async fn liquidity_depth_tracking() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
-    let query_depth = |suite: &TestSuiteNaive| -> LiquidityDepthResponse {
+    let query_depth = |suite: &velox_testing::TestSuite<_>| -> LiquidityDepthResponse {
         suite
-            .query_wasm_smart(
-                contracts.perps,
-                perps::QueryLiquidityDepthRequest {
-                    pair_id: pair.clone(),
-                    bucket_size: UsdPrice::new_int(100),
-                    limit: None,
-                },
-            )
+            .query_wasm_smart(contracts.perps, perps::QueryLiquidityDepthRequest {
+                pair_id: pair.clone(),
+                bucket_size: UsdPrice::new_int(100),
+                limit: None,
+            })
             .should_succeed()
     };
 
@@ -511,7 +466,6 @@ async fn liquidity_depth_tracking() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let depth = query_depth(&suite);
@@ -551,7 +505,6 @@ async fn liquidity_depth_tracking() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let depth = query_depth(&suite);
@@ -595,7 +548,6 @@ async fn liquidity_depth_tracking() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let depth = query_depth(&suite);
@@ -628,7 +580,6 @@ async fn liquidity_depth_tracking() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let depth = query_depth(&suite);
@@ -659,11 +610,11 @@ async fn liquidity_depth_tracking() {
 /// | 3    | Taker market buys 10 ETH               | fee=$20, protocol=$4 → State.treasury == $4             |
 /// | 4    | Maker places another ask 10 ETH @ $2k  | —                                                       |
 /// | 5    | Taker market buys 10 ETH               | another $4 → State.treasury == $8 (accumulated!)        |
-#[tokio::test]
-async fn protocol_fee_accumulates_across_fills() {
+#[test]
+fn protocol_fee_accumulates_across_fills() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -683,7 +634,6 @@ async fn protocol_fee_accumulates_across_fills() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Deposit for maker (user2) and taker (user1).
@@ -694,7 +644,6 @@ async fn protocol_fee_accumulates_across_fills() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -704,7 +653,6 @@ async fn protocol_fee_accumulates_across_fills() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // --- Fill 1: Maker places ask 10 ETH @ $2,000, taker market buys ---
@@ -727,7 +675,6 @@ async fn protocol_fee_accumulates_across_fills() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -746,7 +693,6 @@ async fn protocol_fee_accumulates_across_fills() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // fee = 10 * $2,000 * 0.1% = $20
@@ -781,7 +727,6 @@ async fn protocol_fee_accumulates_across_fills() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -800,7 +745,6 @@ async fn protocol_fee_accumulates_across_fills() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // another $4 → total should be $8 (accumulated, not overwritten!)
@@ -824,11 +768,11 @@ async fn protocol_fee_accumulates_across_fills() {
 /// | 3    | Maker places post_only ask: 50 ETH @ $2,000    | resting on book                                                    | ask exists                               |
 /// | 4    | Taker market buys 50 ETH                        | notional=$100k, taker fee=$30, maker fee=-$10                      | taker margin=$99,970; maker margin=$100,010 |
 /// | 5    | Check treasury                                  | proto: taker $6 + maker -$2 = $4                                   | treasury=$4                              |
-#[tokio::test]
-async fn negative_maker_fee_rebate_lifecycle() {
+#[test]
+fn negative_maker_fee_rebate_lifecycle() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -859,7 +803,6 @@ async fn negative_maker_fee_rebate_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -873,7 +816,6 @@ async fn negative_maker_fee_rebate_lifecycle() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -883,7 +825,6 @@ async fn negative_maker_fee_rebate_lifecycle() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -908,7 +849,6 @@ async fn negative_maker_fee_rebate_lifecycle() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -935,7 +875,6 @@ async fn negative_maker_fee_rebate_lifecycle() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -944,12 +883,9 @@ async fn negative_maker_fee_rebate_lifecycle() {
 
     // Taker: $100,000 - $30 fee = $99,970.
     let taker_state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -961,12 +897,9 @@ async fn negative_maker_fee_rebate_lifecycle() {
 
     // Maker: $100,000 + $10 rebate = $100,010.
     let maker_state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -1003,11 +936,11 @@ async fn negative_maker_fee_rebate_lifecycle() {
 /// | 2    | Maker (user2) places post-only ask: 5 ETH     | ask on book                                     |
 /// | 3    | Taker (user1) IOC limit buy 10 ETH @ $2,000   | 5 fill, 5 cancelled                             |
 /// | 4    | Verify taker state                            | position=5, open_order_count=0, reserved=$0     |
-#[tokio::test]
-async fn ioc_limit_order_partial_fill() {
+#[test]
+fn ioc_limit_order_partial_fill() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -1022,7 +955,6 @@ async fn ioc_limit_order_partial_fill() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1032,7 +964,6 @@ async fn ioc_limit_order_partial_fill() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1057,7 +988,6 @@ async fn ioc_limit_order_partial_fill() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1084,7 +1014,6 @@ async fn ioc_limit_order_partial_fill() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1092,12 +1021,9 @@ async fn ioc_limit_order_partial_fill() {
     // -------------------------------------------------------------------------
 
     let state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -1124,12 +1050,9 @@ async fn ioc_limit_order_partial_fill() {
 
     // Verify no resting orders on book.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert!(orders.is_empty(), "IOC taker should have no resting orders");
@@ -1141,11 +1064,11 @@ async fn ioc_limit_order_partial_fill() {
 /// |------|-------------------------------------------------|--------------------------------|
 /// | 1    | Taker deposits $10,000 USDC                     | margin established             |
 /// | 2    | Taker IOC limit buy 10 ETH @ $1,900 (empty book)| error: no liquidity            |
-#[tokio::test]
-async fn ioc_limit_order_no_fill_rejected() {
+#[test]
+fn ioc_limit_order_no_fill_rejected() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -1157,7 +1080,6 @@ async fn ioc_limit_order_no_fill_rejected() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Step 2: IOC limit buy against empty book → should fail.
@@ -1179,7 +1101,6 @@ async fn ioc_limit_order_no_fill_rejected() {
             })),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("no liquidity at acceptable price");
 }
 
@@ -1193,10 +1114,10 @@ async fn ioc_limit_order_no_fill_rejected() {
 /// `max_market_slippage`. user1 is funded with $10,000.
 macro_rules! setup_slippage_cap_suite {
     () => {{
-        let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
+        let (mut suite, mut accounts, _, contracts, _) =
+            setup_test_naive(TestOption::default());
+        register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
         let pair = pair_id();
-
-        register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
 
         suite
             .execute(
@@ -1213,7 +1134,6 @@ macro_rules! setup_slippage_cap_suite {
                 }),
                 Coins::new(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -1223,7 +1143,6 @@ macro_rules! setup_slippage_cap_suite {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
                 Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
 
         (suite, accounts, contracts, pair)
@@ -1233,8 +1152,8 @@ macro_rules! setup_slippage_cap_suite {
 /// Market order with slippage exactly at the pair cap is accepted at
 /// submission. (It fails later for lack of liquidity — that's fine; the
 /// point of the test is the submission-time check.)
-#[tokio::test]
-async fn slippage_cap_market_at_cap_accepted_at_submission() {
+#[test]
+fn slippage_cap_market_at_cap_accepted_at_submission() {
     let (mut suite, mut accounts, contracts, pair) = setup_slippage_cap_suite!();
 
     // max_slippage = 5% (exactly the cap). The order passes the cap
@@ -1255,15 +1174,14 @@ async fn slippage_cap_market_at_cap_accepted_at_submission() {
             })),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("no liquidity at acceptable price");
 }
 
 /// Market order with slippage just above the pair cap is rejected at
 /// submission with the cap error (not "no liquidity"). This proves the
 /// cap check runs before matching.
-#[tokio::test]
-async fn slippage_cap_market_above_cap_rejected() {
+#[test]
+fn slippage_cap_market_above_cap_rejected() {
     let (mut suite, mut accounts, contracts, pair) = setup_slippage_cap_suite!();
 
     // max_slippage = 6% against 5% cap.
@@ -1283,14 +1201,13 @@ async fn slippage_cap_market_above_cap_rejected() {
             })),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("exceeds the pair cap");
 }
 
 /// TP/SL child order slippage is capped by the same per-pair parameter
 /// as the top-level market order.
-#[tokio::test]
-async fn slippage_cap_tpsl_child_order_above_cap_rejected() {
+#[test]
+fn slippage_cap_tpsl_child_order_above_cap_rejected() {
     let (mut suite, mut accounts, contracts, pair) = setup_slippage_cap_suite!();
 
     // Parent market order with slippage within cap, but the TP child
@@ -1315,15 +1232,14 @@ async fn slippage_cap_tpsl_child_order_above_cap_rejected() {
             })),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("exceeds the pair cap");
 }
 
 /// Limit orders do not carry `max_slippage` and are unaffected by the
 /// market-order slippage cap. Their `limit_price` is bounded instead by
 /// `max_limit_price_deviation` (PR1 banding).
-#[tokio::test]
-async fn slippage_cap_does_not_affect_limit_orders() {
+#[test]
+fn slippage_cap_does_not_affect_limit_orders() {
     let (mut suite, mut accounts, contracts, pair) = setup_slippage_cap_suite!();
 
     // Limit buy at oracle = $2,000. Always within the 10% band of
@@ -1347,7 +1263,6 @@ async fn slippage_cap_does_not_affect_limit_orders() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 }
 
@@ -1355,11 +1270,11 @@ async fn slippage_cap_does_not_affect_limit_orders() {
 /// events — two per match — and the two events of a given match share a
 /// `fill_id`. Successive matches use consecutive fill ids, and
 /// `NEXT_FILL_ID` in storage advances by one per match.
-#[tokio::test]
-async fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
+#[test]
+fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -1372,7 +1287,6 @@ async fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
                 Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
     }
     suite
@@ -1382,7 +1296,6 @@ async fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Two resting asks at different prices. The taker's market buy will
@@ -1409,7 +1322,6 @@ async fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
                 )),
                 Coins::new(),
             )
-            .await
             .should_succeed();
     }
 
@@ -1430,7 +1342,6 @@ async fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed()
         .events;
 
@@ -1487,493 +1398,6 @@ async fn fill_id_is_shared_across_match_sides_and_increments_per_match() {
              with no prior position it must be Some(ZERO)"
         );
     }
-
-    // The two post-fill fields. Event order per match is (taker, maker), so
-    // fills are [taker@1, maker1, taker@2, maker2]. Values derived from the
-    // trade intent (taker buys 4 across two 2-lot makers), not the code:
-    //
-    // - resulting position: the taker ends long 2 after match 1 and long 4
-    //   after match 2; each maker starts flat and ends short 2.
-    // - order remainder: the taker's buy-4 has 2 left after match 1 and 0
-    //   after match 2; each maker's 2-lot ask is fully consumed (0 left).
-    assert_eq!(
-        fills
-            .iter()
-            .map(|f| f.remaining_position_size)
-            .collect::<Vec<_>>(),
-        vec![
-            Some(Quantity::new_int(2)),
-            Some(Quantity::new_int(-2)),
-            Some(Quantity::new_int(4)),
-            Some(Quantity::new_int(-2)),
-        ],
-        "each OrderFilled must report the position size resulting from that fill"
-    );
-    assert_eq!(
-        fills
-            .iter()
-            .map(|f| f.remaining_order_size)
-            .collect::<Vec<_>>(),
-        vec![
-            Some(Quantity::new_int(2)),
-            Some(Quantity::ZERO),
-            Some(Quantity::ZERO),
-            Some(Quantity::ZERO),
-        ],
-        "each OrderFilled must report the order's remaining size after that fill"
-    );
-}
-
-/// A fill that closes and then flips a position reports the resulting *signed*
-/// position size and the order's post-fill remainder. Complements
-/// `fill_id_is_shared_across_match_sides_and_increments_per_match`, which only
-/// exercises position-opening fills.
-///
-/// Trader (user3) opens long 10, then sells 15 in a single match: this closes
-/// the 10 long and opens a 5 short — the `decompose_fill` flip example
-/// documented on `OrderFilled`. The taker fill must report
-/// `remaining_position_size = Some(-5)` and, since the sell fully fills against
-/// a 15-lot bid, `remaining_order_size = Some(0)`.
-#[tokio::test]
-async fn order_filled_reports_resulting_position_size_on_flip() {
-    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
-
-    let pair = pair_id();
-
-    for user in [
-        &mut accounts.user1,
-        &mut accounts.user2,
-        &mut accounts.user3,
-    ] {
-        suite
-            .execute(
-                user,
-                contracts.perps,
-                &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-                Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
-            )
-            .await
-            .should_succeed();
-    }
-
-    // Open: user1 rests a 10-lot ask; user3 market-buys 10 → long 10.
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(-10),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(2_000),
-                    time_in_force: TimeInForce::PostOnly,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-    suite
-        .execute(
-            &mut accounts.user3,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(10),
-                kind: OrderKind::Market {
-                    max_slippage: Dimensionless::new_percent(50),
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // Flip: user2 rests a 15-lot bid; user3 market-sells 15 → closes the 10
-    // long and opens a 5 short.
-    suite
-        .execute(
-            &mut accounts.user2,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(15),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(2_000),
-                    time_in_force: TimeInForce::PostOnly,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-    let flip_events = suite
-        .execute(
-            &mut accounts.user3,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(-15),
-                kind: OrderKind::Market {
-                    max_slippage: Dimensionless::new_percent(50),
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed()
-        .events;
-
-    let taker_fill = flip_events
-        .search_event::<CheckedContractEvent>()
-        .with_predicate(|e| e.ty == "order_filled")
-        .take()
-        .all()
-        .into_iter()
-        .map(|e| e.event.data.deserialize_json::<OrderFilled>().unwrap())
-        .find(|f| f.user == accounts.user3.address())
-        .expect("a taker order_filled event for user3");
-
-    // The documented `decompose_fill` flip: long 10 selling 15 closes 10 and
-    // opens 5 on the short side.
-    assert_eq!(taker_fill.fill_size, Quantity::new_int(-15));
-    assert_eq!(taker_fill.closing_size, Quantity::new_int(-10));
-    assert_eq!(taker_fill.opening_size, Quantity::new_int(-5));
-    // Resulting position: flipped from long 10 to short 5.
-    assert_eq!(
-        taker_fill.remaining_position_size,
-        Some(Quantity::new_int(-5)),
-        "selling 15 while long 10 must leave the position short 5"
-    );
-    // The 15-lot sell fully fills against the 15-lot bid → nothing left.
-    assert_eq!(
-        taker_fill.remaining_order_size,
-        Some(Quantity::ZERO),
-        "a fully-filled order must report zero remaining size"
-    );
-}
-
-/// A partially-filled maker's `OrderFilled` must report the resting order's
-/// post-fill remainder, and that remainder must equal the order left on the
-/// book. Every prior fill test consumes its makers in full, so the non-zero
-/// maker-side `remaining_order_size` was never exercised.
-///
-/// user1 rests a 10-lot ask; user3 market-buys 4. By intent: the taker is
-/// fully filled (remainder 0, position long 4), the maker keeps a 6-lot ask
-/// on the book (remainder -6, position short 4).
-#[tokio::test]
-async fn order_filled_reports_maker_remainder_on_partial_fill() {
-    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
-
-    let pair = pair_id();
-
-    for user in [&mut accounts.user1, &mut accounts.user3] {
-        suite
-            .execute(
-                user,
-                contracts.perps,
-                &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-                Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
-            )
-            .await
-            .should_succeed();
-    }
-
-    // user1 rests a 10-lot ask at $2,000.
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(-10),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(2_000),
-                    time_in_force: TimeInForce::PostOnly,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // user3 market-buys 4, partially consuming the resting ask.
-    let events = suite
-        .execute(
-            &mut accounts.user3,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(4),
-                kind: OrderKind::Market {
-                    max_slippage: Dimensionless::new_percent(50),
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed()
-        .events;
-
-    let fills = events
-        .search_event::<CheckedContractEvent>()
-        .with_predicate(|e| e.ty == "order_filled")
-        .take()
-        .all()
-        .into_iter()
-        .map(|e| e.event.data.deserialize_json::<OrderFilled>().unwrap())
-        .collect::<Vec<_>>();
-
-    assert_eq!(fills.len(), 2, "one match → taker and maker OrderFilled");
-
-    let taker_fill = fills
-        .iter()
-        .find(|f| f.user == accounts.user3.address())
-        .expect("a taker fill for user3");
-    assert_eq!(taker_fill.is_maker, Some(false));
-    assert_eq!(
-        taker_fill.remaining_order_size,
-        Some(Quantity::ZERO),
-        "the 4-lot buy is fully filled"
-    );
-    assert_eq!(
-        taker_fill.remaining_position_size,
-        Some(Quantity::new_int(4))
-    );
-
-    let maker_fill = fills
-        .iter()
-        .find(|f| f.user == accounts.user1.address())
-        .expect("a maker fill for user1");
-    assert_eq!(maker_fill.is_maker, Some(true));
-    assert_eq!(
-        maker_fill.remaining_order_size,
-        Some(Quantity::new_int(-6)),
-        "the 10-lot ask keeps 6 lots after filling 4"
-    );
-    assert_eq!(
-        maker_fill.remaining_position_size,
-        Some(Quantity::new_int(-4))
-    );
-
-    // The event's remainder must equal the order actually left on the book.
-    let maker_orders = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
-        .should_succeed();
-    assert_eq!(
-        maker_orders.len(),
-        1,
-        "the partially-filled ask still rests"
-    );
-    let resting = maker_orders.values().next().unwrap();
-    assert_eq!(
-        Some(resting.size),
-        maker_fill.remaining_order_size,
-        "event remainder must match the resized resting order"
-    );
-
-    // And the events' position sizes must equal the durable user states.
-    for (user, expected) in [
-        (accounts.user1.address(), Quantity::new_int(-4)),
-        (accounts.user3.address(), Quantity::new_int(4)),
-    ] {
-        let state = suite
-            .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest { user })
-            .should_succeed()
-            .unwrap();
-        assert_eq!(state.positions[&pair].size, expected);
-    }
-}
-
-/// A GTC taker whose remainder rests on the book must report that remainder
-/// on its last fill, and the value must equal both the `OrderPersisted`
-/// event's size and the durable resting order. No prior test asserts
-/// `OrderPersisted` at all.
-///
-/// user1 rests a 5-lot ask; user3 submits a GTC limit buy for 10 at the same
-/// price. By intent: 5 fill (position long 5), 5 rest as a bid.
-#[tokio::test]
-async fn order_filled_taker_remainder_matches_persisted_order() {
-    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
-
-    let pair = pair_id();
-
-    for user in [&mut accounts.user1, &mut accounts.user3] {
-        suite
-            .execute(
-                user,
-                contracts.perps,
-                &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-                Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
-            )
-            .await
-            .should_succeed();
-    }
-
-    // user1 rests a 5-lot ask at $2,000.
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(-5),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(2_000),
-                    time_in_force: TimeInForce::PostOnly,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // user3 GTC-buys 10 at $2,000: 5 fill, 5 rest.
-    let events = suite
-        .execute(
-            &mut accounts.user3,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(10),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(2_000),
-                    time_in_force: TimeInForce::GoodTilCanceled,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed()
-        .events;
-
-    let fills = events
-        .clone()
-        .search_event::<CheckedContractEvent>()
-        .with_predicate(|e| e.ty == "order_filled")
-        .take()
-        .all()
-        .into_iter()
-        .map(|e| e.event.data.deserialize_json::<OrderFilled>().unwrap())
-        .collect::<Vec<_>>();
-
-    assert_eq!(fills.len(), 2, "one match → taker and maker OrderFilled");
-
-    let taker_fill = fills
-        .iter()
-        .find(|f| f.user == accounts.user3.address())
-        .expect("a taker fill for user3");
-    assert_eq!(
-        taker_fill.remaining_order_size,
-        Some(Quantity::new_int(5)),
-        "the 10-lot buy has 5 left after consuming the 5-lot ask"
-    );
-    assert_eq!(
-        taker_fill.remaining_position_size,
-        Some(Quantity::new_int(5))
-    );
-
-    let maker_fill = fills
-        .iter()
-        .find(|f| f.user == accounts.user1.address())
-        .expect("a maker fill for user1");
-    assert_eq!(
-        maker_fill.remaining_order_size,
-        Some(Quantity::ZERO),
-        "the 5-lot ask is fully consumed"
-    );
-
-    // The remainder rests: OrderPersisted must carry the same size the
-    // taker's fill reported as remaining.
-    let persisted = events
-        .search_event::<CheckedContractEvent>()
-        .with_predicate(|e| e.ty == "order_persisted")
-        .take()
-        .all()
-        .into_iter()
-        .map(|e| e.event.data.deserialize_json::<OrderPersisted>().unwrap())
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        persisted.len(),
-        1,
-        "the unfilled remainder rests on the book"
-    );
-    assert_eq!(persisted[0].user, accounts.user3.address());
-    assert_eq!(persisted[0].limit_price, UsdPrice::new_int(2_000));
-    assert_eq!(
-        Some(persisted[0].size),
-        taker_fill.remaining_order_size,
-        "OrderPersisted size must equal the taker fill's remaining_order_size"
-    );
-
-    // Durable cross-check: the resting bid on the book carries the same size,
-    // and the maker's book is empty.
-    let taker_orders = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user3.address(),
-            },
-        )
-        .should_succeed();
-    assert_eq!(taker_orders.len(), 1);
-    let resting = taker_orders.values().next().unwrap();
-    assert_eq!(resting.size, Quantity::new_int(5));
-    assert_eq!(resting.limit_price, UsdPrice::new_int(2_000));
-
-    let maker_orders = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
-        .should_succeed();
-    assert!(
-        maker_orders.is_empty(),
-        "the maker's ask was fully consumed"
-    );
 }
 
 /// Bug reproduction: sell-side market order with partial fill is incorrectly
@@ -1988,11 +1412,11 @@ async fn order_filled_taker_remainder_matches_persisted_order() {
 /// This test places a maker bid for 5 ETH, then submits a market sell for 10.
 /// The 5 available should fill and the remaining 5 should be discarded.
 /// With the bug, the entire order is rejected.
-#[tokio::test]
-async fn sell_side_market_order_partial_fill() {
+#[test]
+fn sell_side_market_order_partial_fill() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -2007,7 +1431,6 @@ async fn sell_side_market_order_partial_fill() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -2017,7 +1440,6 @@ async fn sell_side_market_order_partial_fill() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -2042,7 +1464,6 @@ async fn sell_side_market_order_partial_fill() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -2070,17 +1491,13 @@ async fn sell_side_market_order_partial_fill() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify taker has a 10 ETH short position from the 5 that filled.
     let state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -2097,12 +1514,9 @@ async fn sell_side_market_order_partial_fill() {
 
     // Maker's bid should be fully consumed.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     assert!(
@@ -2117,11 +1531,11 @@ async fn sell_side_market_order_partial_fill() {
 ///
 ///   Buy 10: fillable_size = 10, after 5 filled unfilled = 5.
 ///   5 < 10 → true → passes.
-#[tokio::test]
-async fn buy_side_market_order_partial_fill() {
+#[test]
+fn buy_side_market_order_partial_fill() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -2136,7 +1550,6 @@ async fn buy_side_market_order_partial_fill() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -2146,7 +1559,6 @@ async fn buy_side_market_order_partial_fill() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -2171,7 +1583,6 @@ async fn buy_side_market_order_partial_fill() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -2196,17 +1607,13 @@ async fn buy_side_market_order_partial_fill() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify taker has a 5 ETH long position from the partial fill.
     let state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -2223,12 +1630,9 @@ async fn buy_side_market_order_partial_fill() {
 
     // Maker's ask should be fully consumed.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     assert!(

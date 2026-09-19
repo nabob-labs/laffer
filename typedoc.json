@@ -1,0 +1,14 @@
+{
+  "name": "Nabob Labs Laffer Project Stack",
+  "entryPoints": ["./sdk/typescript/bolt", "./sdk/typescript/velox", "./sdk/typescript/types", "./sdk/typescript/utils"],
+  "navigationLinks": {
+    "Home": "https://github.com/nabob-labs/laffer",
+    "GitHub": "https://github.com/nabob-labs/laffer/tree/main/sdk/typescript"
+  },
+  "entryPointStrategy": "packages",
+  "includeVersion": true,
+  "githubPages": true,
+  "readme": "./sdk/typescript/README.md",
+  "darkHighlightTheme": "dark-plus",
+  "out": "./sdk/typescript/docs"
+}

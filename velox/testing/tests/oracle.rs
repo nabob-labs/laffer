@@ -1,29 +1,25 @@
 use {
-    std::str::FromStr,
-    velox_math::Dec128_6,
-    velox_order_book::UsdPrice,
-    velox_primitives::{
-        Addr, Binary, ByteArray, Coins, Denom, Duration, NonEmpty, QuerierExt, ResultExt,
-        Timestamp, btree_map, btree_set,
-    },
-    velox_pyth_types::{Channel, LeEcdsaMessage, MarketSession, constants::LAZER_TRUSTED_SIGNER},
-    velox_testing::{TestAccounts, TestSuiteNaive, setup_test_naive},
+    velox_testing::{TestAccounts, TestSuite, setup_test_naive},
     velox_types::{
-        constants::{eth, perp_btc},
-        oracle::{
-            ExecuteMsg, PriceConfig, PriceSource, QueryPriceRequest, QueryPriceSourceRequest,
-            QueryPriceSourcesRequest, QueryTrustedSignersRequest,
-        },
+        constants::{btc, eth},
+        oracle::{ExecuteMsg, PriceSource, QueryPriceRequest, QueryTrustedSignersRequest},
     },
+    bolt::{
+        Addr, Binary, ByteArray, Coins, NonEmpty, QuerierExt, ResultExt, Timestamp, Udec128,
+        btree_map,
+    },
+    bolt_app::NaiveProposalPreparer,
+    pyth_types::{Channel, LeEcdsaMessage, constants::LAZER_TRUSTED_SIGNER},
+    std::str::FromStr,
 };
 
-fn setup_oracle_test() -> (TestSuiteNaive, TestAccounts, Addr) {
+fn setup_oracle_test() -> (TestSuite<NaiveProposalPreparer>, TestAccounts, Addr) {
     let (suite, accounts, _, contracts, _) = setup_test_naive(Default::default());
     (suite, accounts, contracts.oracle)
 }
 
-#[tokio::test]
-async fn pyth_lazer() {
+#[test]
+fn pyth_lazer() {
     let (mut suite, mut accounts, oracle) = setup_oracle_test();
 
     let message = LeEcdsaMessage {
@@ -49,28 +45,25 @@ async fn pyth_lazer() {
             &mut accounts.owner,
             oracle,
             &ExecuteMsg::RegisterPriceSources(btree_map! {
-                perp_btc::DENOM.clone() => PriceConfig::Single(PriceSource { id: 1, channel: Channel::RealTime }),
-                eth::DENOM.clone() => PriceConfig::Single(PriceSource { id: 2, channel: Channel::RealTime }),
+                btc::DENOM.clone() => PriceSource::Pyth { id: 1, precision: 8, channel:Channel::RealTime },
+                eth::DENOM.clone() => PriceSource::Pyth { id: 2, precision: 18 , channel:Channel::RealTime },
             }),
             Coins::default(),
         )
-        .await
         .should_succeed();
 
-    // Genesis registers the mock signer. Remove it so this test starts with
-    // no trusted signers — we explicitly manage signer trust below.
-    let mock_pubkey = velox_testing::mock_pyth_trusted_signer();
-
+    // The trusted signer was set in genesis. For the purpose of this test,
+    // remove it for now, to test what happens if we submit price data from an
+    // untrusted signer.
     suite
         .execute(
             &mut accounts.owner,
             oracle,
             &ExecuteMsg::RemoveTrustedSigner {
-                public_key: mock_pubkey,
+                public_key: trusted_signer.clone(),
             },
             Coins::default(),
         )
-        .await
         .should_succeed();
 
     // Try to feed price from Pyth Lazer. Should fail because the signer is not trusted.
@@ -81,7 +74,6 @@ async fn pyth_lazer() {
             &ExecuteMsg::FeedPrices(NonEmpty::new_unchecked(vec![message.clone()])),
             Coins::default(),
         )
-        .await
         .should_fail_with_error("signer is not trusted");
 
     // Get current time
@@ -94,28 +86,27 @@ async fn pyth_lazer() {
             oracle,
             &ExecuteMsg::RegisterTrustedSigner {
                 public_key: trusted_signer.clone(),
-                expires_at: current_time - Duration::from_seconds(60), // 1 minute ago
+                expires_at: current_time - bolt::Duration::from_seconds(60), // 1 minute ago
             },
             Coins::default(),
         )
-        .await
         .should_succeed();
 
     // Query the trusted signers
     let trusted_signers = suite
-        .query_wasm_smart(
-            oracle,
-            QueryTrustedSignersRequest {
-                limit: None,
-                start_after: None,
-            },
-        )
+        .query_wasm_smart(oracle, QueryTrustedSignersRequest {
+            limit: None,
+            start_after: None,
+        })
         .unwrap();
     assert_eq!(trusted_signers.len(), 1);
 
     let (signer, timestamp) = trusted_signers.iter().next().unwrap();
     assert_eq!(signer, &trusted_signer);
-    assert_eq!(timestamp, &(current_time - Duration::from_seconds(60)));
+    assert_eq!(
+        timestamp,
+        &(current_time - bolt::Duration::from_seconds(60))
+    );
 
     // Try to feed price from Pyth Lazer. Should fail because the signer is no longer trusted.
     suite
@@ -125,7 +116,6 @@ async fn pyth_lazer() {
             &ExecuteMsg::FeedPrices(NonEmpty::new_unchecked(vec![message.clone()])),
             Coins::default(),
         )
-        .await
         .should_fail_with_error("signer is no longer trusted");
 
     // Set the signer as trusted but with a timestamp in the future.
@@ -135,11 +125,10 @@ async fn pyth_lazer() {
             oracle,
             &ExecuteMsg::RegisterTrustedSigner {
                 public_key: trusted_signer.clone(),
-                expires_at: current_time + Duration::from_seconds(60), // 1 minute from now
+                expires_at: current_time + bolt::Duration::from_seconds(60), // 1 minute from now
             },
             Coins::default(),
         )
-        .await
         .should_succeed();
 
     // Try to feed price from Pyth Lazer. Should succeed because the signer is trusted.
@@ -150,149 +139,31 @@ async fn pyth_lazer() {
             &ExecuteMsg::FeedPrices(NonEmpty::new_unchecked(vec![message])),
             Coins::default(),
         )
-        .await
         .should_succeed();
 
     // Query the BTC price
     let price = suite
-        .query_wasm_smart(
-            oracle,
-            QueryPriceRequest {
-                denom: perp_btc::DENOM.clone(),
-            },
-        )
+        .query_wasm_smart(oracle, QueryPriceRequest {
+            denom: btc::DENOM.clone(),
+        })
         .unwrap();
 
     assert_eq!(
         price.humanized_price,
-        UsdPrice::new(Dec128_6::from_str("112985.059013").unwrap())
+        Udec128::from_str("112985.05901374").unwrap()
     );
     assert_eq!(price.timestamp, Timestamp::from_micros(1758539671000000));
-    // The captured payload predates our subscription to `MarketSession`,
-    // so the property is absent and the parser falls back to `Other`.
-    assert_eq!(price.market_session, MarketSession::Other);
 
     // Query the ETH price
     let price = suite
-        .query_wasm_smart(
-            oracle,
-            QueryPriceRequest {
-                denom: eth::DENOM.clone(),
-            },
-        )
+        .query_wasm_smart(oracle, QueryPriceRequest {
+            denom: eth::DENOM.clone(),
+        })
         .unwrap();
 
     assert_eq!(
         price.humanized_price,
-        UsdPrice::new(Dec128_6::from_str("4185.880446").unwrap())
+        Udec128::from_str("4185.88044686").unwrap()
     );
     assert_eq!(price.timestamp, Timestamp::from_micros(1758539671000000));
-    assert_eq!(price.market_session, MarketSession::Other);
-}
-
-#[tokio::test]
-async fn remove_price_sources() {
-    let (mut suite, mut accounts, oracle) = setup_oracle_test();
-
-    let test_denom = Denom::from_str("test").unwrap();
-
-    // Register a price source for a fresh denom, so that we can remove it
-    // later in the test.
-    suite
-        .execute(
-            &mut accounts.owner,
-            oracle,
-            &ExecuteMsg::RegisterPriceSources(btree_map! {
-                test_denom.clone() => PriceConfig::Single(PriceSource {
-                    id: 1,
-                    channel: Channel::RealTime,
-                }),
-            }),
-            Coins::default(),
-        )
-        .await
-        .should_succeed();
-
-    // Sanity check: both the fresh denom and `eth`, which is registered at
-    // genesis, have a price source.
-    for denom in [test_denom.clone(), eth::DENOM.clone()] {
-        suite
-            .query_wasm_smart(oracle, QueryPriceSourceRequest { denom })
-            .should_succeed();
-    }
-
-    // Attempt to remove a price source as a non-owner. Should fail with the
-    // access control error.
-    suite
-        .execute(
-            &mut accounts.user1,
-            oracle,
-            &ExecuteMsg::RemovePriceSources(btree_set! { test_denom.clone() }),
-            Coins::default(),
-        )
-        .await
-        .should_fail_with_error("you don't have the right");
-
-    // The price source should be unaffected by the failed removal.
-    suite
-        .query_wasm_smart(
-            oracle,
-            QueryPriceSourceRequest {
-                denom: test_denom.clone(),
-            },
-        )
-        .should_succeed();
-
-    // Remove two price sources as the owner: one registered earlier in this
-    // test, one registered at genesis.
-    suite
-        .execute(
-            &mut accounts.owner,
-            oracle,
-            &ExecuteMsg::RemovePriceSources(btree_set! {
-                test_denom.clone(),
-                eth::DENOM.clone(),
-            }),
-            Coins::default(),
-        )
-        .await
-        .should_succeed();
-
-    // Both price sources should be gone, from both the single-denom query and
-    // the enumeration.
-    for denom in [test_denom.clone(), eth::DENOM.clone()] {
-        suite
-            .query_wasm_smart(
-                oracle,
-                QueryPriceSourceRequest {
-                    denom: denom.clone(),
-                },
-            )
-            .should_fail_with_error("data not found");
-
-        suite
-            .query_wasm_smart(
-                oracle,
-                QueryPriceSourcesRequest {
-                    start_after: None,
-                    limit: Some(u32::MAX),
-                },
-            )
-            .should_succeed_and(|sources| !sources.contains_key(&denom));
-    }
-
-    // Removing denoms that don't have a price source — one just removed, one
-    // never registered — is a no-op that should succeed silently.
-    suite
-        .execute(
-            &mut accounts.owner,
-            oracle,
-            &ExecuteMsg::RemovePriceSources(btree_set! {
-                test_denom,
-                Denom::from_str("nonexistent").unwrap(),
-            }),
-            Coins::default(),
-        )
-        .await
-        .should_succeed();
 }

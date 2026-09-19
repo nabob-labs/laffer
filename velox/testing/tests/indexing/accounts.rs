@@ -1,22 +1,22 @@
 use {
     assertor::*,
-    itertools::Itertools,
-    sea_orm::EntityTrait,
-    velox_app::Indexer,
     velox_indexer_sql::entity,
     velox_testing::{
         HyperlaneTestSuite, TestOption, add_account_with_existing_user, create_user_and_account,
         setup_test_with_indexer,
     },
+    bolt_app::Indexer,
+    itertools::Itertools,
+    sea_orm::EntityTrait,
 };
 
 #[tokio::test(flavor = "multi_thread")]
 async fn index_account_creations() -> anyhow::Result<()> {
-    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+    let (suite, mut accounts, codes, contracts, validator_sets, _, velox_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -57,11 +57,11 @@ async fn index_account_creations() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn index_previous_blocks() -> anyhow::Result<()> {
-    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+    let (suite, mut accounts, codes, contracts, validator_sets, _, velox_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -88,15 +88,13 @@ async fn index_previous_blocks() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Flaky test, needs investigation"]
 async fn index_single_user_multiple_single_signature_accounts() -> anyhow::Result<()> {
-    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+    let (suite, mut accounts, codes, contracts, validator_sets, _, velox_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let mut test_account1 =
-        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let mut test_account1 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
-    let test_account2 =
-        add_account_with_existing_user(&mut suite, &contracts, &mut test_account1).await;
+    let test_account2 = add_account_with_existing_user(&mut suite, &contracts, &mut test_account1);
 
     suite.app.indexer.wait_for_finish().await?;
 

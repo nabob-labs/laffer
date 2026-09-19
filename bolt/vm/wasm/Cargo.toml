@@ -1,0 +1,50 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "bolt-vm-wasm"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+# Implement `bolt_testing::TestVm` trait for `WasmVm`, so that it can be used in
+# the test suite.
+testing = ["dep:bolt-testing"]
+
+[dependencies]
+clru               = { workspace = true }
+data-encoding      = { workspace = true }
+error-backtrace    = { workspace = true }
+bolt-app           = { workspace = true }
+bolt-crypto        = { workspace = true }
+bolt-testing       = { workspace = true, optional = true }
+bolt-types         = { workspace = true }
+serde              = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+wasmer             = { workspace = true, features = ["singlepass"] }
+wasmer-middlewares = { workspace = true }
+
+[dev-dependencies]
+criterion      = { workspace = true }
+ed25519-dalek  = { workspace = true, features = ["batch", "digest"] }
+bolt-app       = { workspace = true, features = ["tracing"] }
+bolt-crypto    = { workspace = true }
+bolt-db-memory = { workspace = true }
+bolt-math      = { workspace = true }
+bolt-mock-bank = { workspace = true, features = ["library"] }
+bolt-tester    = { workspace = true, features = ["library"] }
+bolt-testing   = { workspace = true }
+bolt-vm-wasm   = { workspace = true, features = ["testing"] }
+identity       = { workspace = true }
+k256           = { workspace = true }
+p256           = { workspace = true }
+rand           = { workspace = true }
+test-case      = { workspace = true }
+
+[[bench]]
+harness = false
+name    = "benchmarks"

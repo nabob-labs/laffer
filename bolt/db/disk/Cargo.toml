@@ -1,0 +1,38 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "bolt-db-disk"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+ibc     = ["bolt-app/ibc", "bolt-jmt/ibc", "ics23"]
+metrics = ["dep:metrics", "bolt-types/metrics"]
+tracing = ["dep:tracing", "dep:uuid"]
+
+[dependencies]
+error-backtrace = { workspace = true }
+bolt-app        = { workspace = true }
+bolt-jmt        = { workspace = true, optional = true }
+bolt-types      = { workspace = true }
+hex             = { workspace = true }
+ics23           = { workspace = true, optional = true }
+itertools       = { workspace = true }
+metrics         = { workspace = true, optional = true }
+num_cpus        = { workspace = true }
+parking_lot     = { workspace = true }
+rocksdb         = { workspace = true }
+thiserror       = { workspace = true }
+tracing         = { workspace = true, optional = true }
+uuid            = { workspace = true, optional = true }
+
+[dev-dependencies]
+bolt-jmt     = { workspace = true }
+bolt-storage = { workspace = true }
+hex-literal  = { workspace = true }
+proptest     = { workspace = true }
+temp-rocksdb = { workspace = true }

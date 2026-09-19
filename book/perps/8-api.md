@@ -121,7 +121,7 @@ Roll the page's `endCursor` back in as the next request's `after` to fetch the f
 
 ### 2.5 Casing
 
-URL **path segments** are kebab-case (`/perps/liquidity-depth`, `/perps/order/by-user`). **Query parameters** keep the snake_case spelling and the wire encoding of the contract fields they forward to — so a numeric grug type stays string-encoded in the query string (`bucket_size=10` parses as a `UsdPrice`), while a plain integer is unquoted (`limit=20`).
+URL **path segments** are kebab-case (`/perps/liquidity-depth`, `/perps/order/by-user`). **Query parameters** keep the snake_case spelling and the wire encoding of the contract fields they forward to — so a numeric bolt type stays string-encoded in the query string (`bucket_size=10` parses as a `UsdPrice`), while a plain integer is unquoted (`limit=20`).
 
 ## 3. Live API — reading state
 
@@ -129,7 +129,7 @@ All reads in this section answer from the **latest finalized state** and require
 
 ### 3.1 The universal query
 
-`POST /query` runs any read-only query against the latest state. The body is a raw grug `Query` object; the response is the raw `QueryResponse`. This is the lowest-level, most general read — every typed shortcut in [§3.2](#32-typed-read-shortcuts) desugars to one of these.
+`POST /query` runs any read-only query against the latest state. The body is a raw bolt `Query` object; the response is the raw `QueryResponse`. This is the lowest-level, most general read — every typed shortcut in [§3.2](#32-typed-read-shortcuts) desugars to one of these.
 
 **Example — query a contract:**
 
@@ -618,7 +618,7 @@ Each event carries its ordinal `idx`, its `eventType`, the indexed `user` / `pai
 
 A **standing query** re-runs a read once per block whose height is a multiple of `interval` (default 10; use `1` for every block), streaming `{blockHeight, response}` frames. The initial snapshot arrives immediately, then ticks align absolutely (`height % interval == 0`), so identical subscriptions share one execution per tick.
 
-The generic form takes any grug `Query`:
+The generic form takes any bolt `Query`:
 
 ```json
 {"method":"subscribe","id":5,"subscription":{"type":"query","query":{"wasm_smart":{"contract":"PERPS_CONTRACT","msg":{"user_state":{"user":"0x…"}}}},"interval":5}}

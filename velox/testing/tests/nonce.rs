@@ -1,10 +1,10 @@
 use {
-    std::vec,
-    velox_primitives::{
+    velox_testing::{TestAccounts, constants::MOCK_CHAIN_ID, setup_test_naive},
+    velox_types::{account::QuerySeenNoncesRequest, constants::velox},
+    bolt::{
         Addressable, Coins, Duration, JsonSerExt, Message, NonEmpty, QuerierExt, ResultExt, Tx,
     },
-    velox_testing::{MOCK_CHAIN_ID, TestAccounts, setup_test_naive},
-    velox_types::{account::QuerySeenNoncesRequest, constants::velox},
+    std::vec,
 };
 
 fn prepare_tx_with_nonce(accounts: &TestAccounts, nonce: u32, expiry: Option<Duration>) -> Tx {
@@ -39,8 +39,8 @@ fn prepare_tx_with_nonce(accounts: &TestAccounts, nonce: u32, expiry: Option<Dur
     }
 }
 
-#[tokio::test]
-async fn tracked_nonces_works() {
+#[test]
+fn tracked_nonces_works() {
     let (mut suite, mut accounts, ..) = setup_test_naive(Default::default());
 
     for _ in 0..20 {
@@ -50,7 +50,6 @@ async fn tracked_nonces_works() {
                 accounts.user1.address(),
                 Coins::one(velox::DENOM.clone(), 123).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -60,34 +59,34 @@ async fn tracked_nonces_works() {
         .should_succeed_and(|seen_nonces| seen_nonces.last() == Some(&19));
 
     let tx = prepare_tx_with_nonce(&accounts, 20, None);
-    suite.send_transaction(tx).await.should_succeed();
+    suite.send_transaction(tx).should_succeed();
 
     // Transfer should fail because the nonce is already tracked.
     let tx = prepare_tx_with_nonce(&accounts, 9, None);
-    suite.send_transaction(tx).await.should_fail();
+    suite.send_transaction(tx).should_fail();
 
     for i in 21..44 {
         if ![23, 25, 27, 29].contains(&i) {
             let tx = prepare_tx_with_nonce(&accounts, i, None);
-            suite.send_transaction(tx).await.should_succeed();
+            suite.send_transaction(tx).should_succeed();
         }
     }
 
     // A nonce in range and not used should still be valid.
     for i in [25, 27, 29] {
         let tx = prepare_tx_with_nonce(&accounts, i, None);
-        suite.send_transaction(tx).await.should_succeed();
+        suite.send_transaction(tx).should_succeed();
     }
 
     // A nonce not used but not in range shouldn't be valid.
     let tx = prepare_tx_with_nonce(&accounts, 23, None);
-    suite.send_transaction(tx).await.should_fail();
+    suite.send_transaction(tx).should_fail();
 
     // A transaction with a valid nonce but expired shouldn't be valid.
     let tx = prepare_tx_with_nonce(&accounts, 45, Some(Duration::from_days(0)));
-    suite.send_transaction(tx).await.should_fail();
+    suite.send_transaction(tx).should_fail();
 
     // Same tx but without expire should be valid.
     let tx = prepare_tx_with_nonce(&accounts, 45, None);
-    suite.send_transaction(tx).await.should_succeed();
+    suite.send_transaction(tx).should_succeed();
 }

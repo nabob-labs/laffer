@@ -4,14 +4,15 @@ use {
     async_graphql::{ComplexObject, SimpleObject},
     bigdecimal::BigDecimal,
     bigdecimal::num_bigint::BigInt,
-    velox_primitives::{Inner, Timestamp},
+    bolt::Inner,
+    bolt::Timestamp,
 };
 use {
     crate::entities::{CandleInterval, perps_pair_price::PerpsPairPrice},
     chrono::{DateTime, Utc},
     clickhouse::Row,
+    bolt::{NumberConst, Udec128_6},
     serde::{Deserialize, Serialize},
-    velox_math::{NumberConst, Udec128_6},
 };
 
 #[derive(Debug, Row, Serialize, Deserialize, Eq, PartialEq, Hash, Clone)]
@@ -23,22 +24,22 @@ pub struct PerpsCandle {
     #[serde(with = "clickhouse::serde::chrono::datetime64::micros")]
     pub time_start: DateTime<Utc>,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub open: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub high: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub low: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub close: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub volume: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub volume_usd: Udec128_6,
     pub min_block_height: u64,
     pub max_block_height: u64,

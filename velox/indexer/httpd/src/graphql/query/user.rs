@@ -1,15 +1,15 @@
 use {
-    crate::context::FullContext,
     async_graphql::{
         connection::{Connection, Edge, EmptyFields, OpaqueCursor, query_with},
         *,
     },
+    velox_indexer_sql::entity,
+    velox_types::account_factory::UserIndex,
+    indexer_httpd::context::Context,
     sea_orm::{
         ColumnTrait, Condition, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, Select,
     },
     serde::{Deserialize, Serialize},
-    velox_indexer_sql::entity,
-    velox_types::account_factory::UserIndex,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,7 +41,7 @@ impl UserQuery {
         ctx: &async_graphql::Context<'_>,
         user_index: UserIndex,
     ) -> Result<Option<entity::users::Model>> {
-        let app_ctx = ctx.data::<FullContext>()?;
+        let app_ctx = ctx.data::<Context>()?;
 
         Ok(entity::users::Entity::find()
             .filter(entity::users::Column::UserIndex.eq(user_index))
@@ -61,7 +61,7 @@ impl UserQuery {
         public_key: Option<String>,
         public_key_hash: Option<String>,
     ) -> Result<Connection<UserCursorType, entity::users::Model, EmptyFields, EmptyFields>> {
-        let app_ctx = ctx.data::<FullContext>()?;
+        let app_ctx = ctx.data::<Context>()?;
 
         query_with::<UserCursorType, _, _, _, _>(
             after,

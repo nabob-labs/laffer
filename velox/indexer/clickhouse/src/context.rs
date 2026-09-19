@@ -2,15 +2,17 @@
 use clickhouse::test;
 use {
     crate::{
-        entities::perps_pair_price::PerpsPairPrice,
+        entities::{pair_price::PairPrice, perps_pair_price::PerpsPairPrice, trade::Trade},
         indexer::{
+            candles::cache::CandleCache, pair_stats::cache::PairStatsCache,
             perps_candles::cache::PerpsCandleCache, perps_pair_stats::cache::PerpsPairStatsCache,
+            trades::cache::TradeCache,
         },
     },
     clickhouse::Client,
+    indexer_sql::pubsub::{self, PubSub},
     std::sync::Arc,
     tokio::sync::RwLock,
-    velox_indexer_sql::pubsub::{self, PubSub},
 };
 
 #[derive(Clone)]
@@ -26,7 +28,11 @@ pub struct Context {
     #[allow(dead_code)]
     clickhouse_client: Client,
     pub pubsub: Arc<dyn PubSub<u64> + Send + Sync>,
+    pub trade_pubsub: Arc<dyn PubSub<Trade> + Send + Sync>,
+    pub candle_cache: Arc<RwLock<CandleCache>>,
     pub perps_candle_cache: Arc<RwLock<PerpsCandleCache>>,
+    pub trade_cache: Arc<RwLock<TradeCache>>,
+    pub pair_stats_cache: Arc<RwLock<PairStatsCache>>,
     pub perps_pair_stats_cache: Arc<RwLock<PerpsPairStatsCache>>,
 }
 
@@ -40,11 +46,17 @@ impl Context {
             .with_database(&database);
 
         let pubsub: Arc<dyn PubSub<u64> + Send + Sync> = Arc::new(pubsub::MemoryPubSub::new(100));
+        let trade_pubsub: Arc<dyn PubSub<Trade> + Send + Sync> =
+            Arc::new(pubsub::MemoryPubSub::new(100));
 
         Self {
             clickhouse_client,
             pubsub,
+            trade_pubsub,
+            candle_cache: Default::default(),
             perps_candle_cache: Default::default(),
+            trade_cache: Default::default(),
+            pair_stats_cache: Default::default(),
             perps_pair_stats_cache: Default::default(),
         }
     }
@@ -64,6 +76,8 @@ impl Context {
         );
 
         let pubsub: Arc<dyn PubSub<u64> + Send + Sync> = Arc::new(pubsub::MemoryPubSub::new(100));
+        let trade_pubsub: Arc<dyn PubSub<Trade> + Send + Sync> =
+            Arc::new(pubsub::MemoryPubSub::new(100));
 
         Self {
             mock: None,
@@ -71,13 +85,25 @@ impl Context {
             clickhouse_database: database,
             clickhouse_client,
             pubsub,
+            trade_pubsub,
+            candle_cache: Default::default(),
             perps_candle_cache: Default::default(),
+            trade_cache: Default::default(),
+            pair_stats_cache: Default::default(),
             perps_pair_stats_cache: Default::default(),
         }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub async fn preload_cache(&self) -> crate::error::Result<()> {
+        let all_pairs = PairPrice::all_pairs(self.clickhouse_client()).await?;
+
+        let mut candle_cache = self.candle_cache.write().await;
+        candle_cache
+            .preload_pairs(&all_pairs, self.clickhouse_client())
+            .await?;
+        drop(candle_cache);
+
         let perps_pair_ids = PerpsPairPrice::all_pair_ids(self.clickhouse_client()).await?;
 
         let mut perps_candle_cache = self.perps_candle_cache.write().await;
@@ -85,6 +111,14 @@ impl Context {
             .preload_pairs(&perps_pair_ids, self.clickhouse_client())
             .await?;
         drop(perps_candle_cache);
+
+        let mut trade_cache = self.trade_cache.write().await;
+        trade_cache.preload(self.clickhouse_client()).await?;
+        drop(trade_cache);
+
+        let mut pair_stats_cache = self.pair_stats_cache.write().await;
+        pair_stats_cache.refresh(self.clickhouse_client()).await?;
+        drop(pair_stats_cache);
 
         let mut perps_pair_stats_cache = self.perps_pair_stats_cache.write().await;
         perps_pair_stats_cache
@@ -95,6 +129,7 @@ impl Context {
         Ok(())
     }
 
+    #[cfg(feature = "async-graphql")]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub async fn start_cache(&self) -> crate::error::Result<()> {
         self.preload_cache().await
@@ -110,7 +145,11 @@ impl Context {
             clean_up_database: false,
             clickhouse_database: self.clickhouse_database,
             pubsub: self.pubsub,
+            trade_pubsub: self.trade_pubsub,
+            candle_cache: self.candle_cache,
             perps_candle_cache: self.perps_candle_cache,
+            trade_cache: self.trade_cache,
+            pair_stats_cache: self.pair_stats_cache,
             perps_pair_stats_cache: self.perps_pair_stats_cache,
         }
     }
@@ -136,7 +175,11 @@ impl Context {
             clean_up_database: true,
             clickhouse_client,
             pubsub: self.pubsub,
+            trade_pubsub: self.trade_pubsub,
+            candle_cache: self.candle_cache,
             perps_candle_cache: self.perps_candle_cache,
+            trade_cache: self.trade_cache,
+            pair_stats_cache: self.pair_stats_cache,
             perps_pair_stats_cache: self.perps_pair_stats_cache,
         })
     }

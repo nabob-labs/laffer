@@ -1,17 +1,18 @@
 use {
     crate::{
-        context::Context, entities::perps_pair_price::PerpsPairPrice, error::Result,
+        context::Context,
+        entities::perps_pair_price::PerpsPairPrice,
+        error::{IndexerError, Result},
         indexer::Indexer,
     },
     chrono::{DateTime, Utc},
-    std::collections::HashMap,
-    velox_math::{Number, NumberConst, Sign, Signed, Udec128_6},
-    velox_primitives::{
+    velox_types::perps::OrderFilled,
+    bolt::{
         Addr, BlockAndBlockOutcomeWithHttpDetails, CommitmentStatus, EventName, EventStatus,
         EvtCron, FlatCommitmentStatus, FlatEvent, FlatEventInfo, FlatEventStatus, JsonDeExt,
-        NaiveFlatten, SearchEvent,
+        NaiveFlatten, Number, NumberConst, SearchEvent, Sign, Signed, Udec128_6,
     },
-    velox_types::perps::OrderFilled,
+    std::collections::HashMap,
 };
 
 pub mod cache;
@@ -20,9 +21,13 @@ pub mod generator;
 impl Indexer {
     pub(crate) async fn store_perps_candles(
         perps_addr: &Addr,
-        block_and_block_outcome: &BlockAndBlockOutcomeWithHttpDetails,
+        ctx: &bolt_app::IndexerContext,
         context: &Context,
     ) -> Result<()> {
+        let block_and_block_outcome = ctx
+            .get::<BlockAndBlockOutcomeWithHttpDetails>()
+            .ok_or(IndexerError::missing_block_or_block_outcome())?;
+
         let created_at = DateTime::<Utc>::from_naive_utc_and_offset(
             block_and_block_outcome
                 .block
@@ -141,7 +146,7 @@ struct PerpsPairPriceAccumulator {
 }
 
 fn process_order_filled(
-    contract_event: &velox_primitives::CheckedContractEvent,
+    contract_event: &bolt_types::CheckedContractEvent,
     fills_by_pair: &mut HashMap<String, PerpsPairPriceAccumulator>,
 ) -> Result<()> {
     let order_filled = contract_event

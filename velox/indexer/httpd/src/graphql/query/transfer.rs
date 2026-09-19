@@ -1,16 +1,16 @@
 use {
-    crate::{
-        context::FullContext,
+    async_graphql::{types::connection::*, *},
+    velox_indexer_sql::entity,
+    velox_types::account_factory::UserIndex,
+    indexer_httpd::{
+        context::Context,
         graphql::query::pagination::{CursorFilter, CursorOrder, Reversible, paginate_models},
     },
-    async_graphql::{types::connection::*, *},
     sea_orm::{
         ColumnTrait, Condition, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
         QueryTrait, RelationTrait, Select,
     },
     serde::{Deserialize, Serialize},
-    velox_indexer_sql::entity,
-    velox_types::account_factory::UserIndex,
 };
 
 #[derive(Enum, Copy, Clone, Eq, PartialEq, Debug, Default)]
@@ -83,7 +83,7 @@ impl TransferQuery {
             EmptyFields,
         >,
     > {
-        let app_ctx = ctx.data::<FullContext>()?;
+        let app_ctx = ctx.data::<Context>()?;
 
         paginate_models(
             app_ctx,

@@ -5,28 +5,27 @@
 
 use {
     crate::{default_pair_param, default_param, register_oracle_prices},
-    std::collections::BTreeMap,
-    velox_math::Uint128,
     velox_order_book::{
         Dimensionless, OrderId, OrderKind, Quantity, QueryOrdersByUserResponseItem, TimeInForce,
         UsdPrice,
     },
-    velox_primitives::{Addressable, Coins, QuerierExt, ResultExt, btree_map},
-    velox_testing::{TestOption, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
         perps::{self, PairParam, UserState},
     },
+    bolt::{Addressable, Coins, QuerierExt, ResultExt, Uint128, btree_map},
+    std::collections::BTreeMap,
 };
 
 /// Set up a test suite with oracle = $2,000, band = 10%, and user1 funded
 /// with $10,000 margin.
 macro_rules! setup_band_suite {
     () => {{
-        let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
+        let (mut suite, mut accounts, _, contracts, _) =
+            setup_test_naive(TestOption::default());
+        register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
         let pair = pair_id();
-
-        register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
 
         suite
             .execute(
@@ -43,7 +42,6 @@ macro_rules! setup_band_suite {
                 }),
                 Coins::new(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -53,7 +51,6 @@ macro_rules! setup_band_suite {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
                 Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
 
         (suite, accounts, contracts, pair)
@@ -63,33 +60,29 @@ macro_rules! setup_band_suite {
 /// Send a limit order from user1 at the given price and time-in-force.
 macro_rules! submit_limit {
     ($suite:expr, $accounts:expr, $contracts:expr, $pair:expr, $size:expr, $price:expr, $tif:expr) => {
-        $suite
-            .execute(
-                &mut $accounts.user1,
-                $contracts.perps,
-                &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(
-                    perps::SubmitOrderRequest {
-                        pair_id: $pair.clone(),
-                        size: Quantity::new_int($size),
-                        kind: OrderKind::Limit {
-                            limit_price: UsdPrice::new_int($price),
-                            time_in_force: $tif,
-                            client_order_id: None,
-                        },
-                        reduce_only: false,
-                        tp: None,
-                        sl: None,
-                    },
-                )),
-                Coins::new(),
-            )
-            .await
+        $suite.execute(
+            &mut $accounts.user1,
+            $contracts.perps,
+            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
+                pair_id: $pair.clone(),
+                size: Quantity::new_int($size),
+                kind: OrderKind::Limit {
+                    limit_price: UsdPrice::new_int($price),
+                    time_in_force: $tif,
+                    client_order_id: None,
+                },
+                reduce_only: false,
+                tp: None,
+                sl: None,
+            })),
+            Coins::new(),
+        )
     };
 }
 
 /// GTC limit buy exactly at the upper band bound is accepted.
-#[tokio::test]
-async fn banding_gtc_at_upper_bound_accepted() {
+#[test]
+fn banding_gtc_at_upper_bound_accepted() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     // oracle * (1 + 10%) = $2,200.
@@ -106,8 +99,8 @@ async fn banding_gtc_at_upper_bound_accepted() {
 }
 
 /// GTC limit buy just above the upper bound is rejected.
-#[tokio::test]
-async fn banding_gtc_just_above_upper_bound_rejected() {
+#[test]
+fn banding_gtc_just_above_upper_bound_rejected() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     submit_limit!(
@@ -123,8 +116,8 @@ async fn banding_gtc_just_above_upper_bound_rejected() {
 }
 
 /// GTC limit sell below the lower bound is rejected.
-#[tokio::test]
-async fn banding_gtc_below_lower_bound_rejected() {
+#[test]
+fn banding_gtc_below_lower_bound_rejected() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     submit_limit!(
@@ -140,8 +133,8 @@ async fn banding_gtc_below_lower_bound_rejected() {
 }
 
 /// IOC limit with out-of-band price is rejected before any fill is attempted.
-#[tokio::test]
-async fn banding_ioc_out_of_band_rejected() {
+#[test]
+fn banding_ioc_out_of_band_rejected() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     submit_limit!(
@@ -158,8 +151,8 @@ async fn banding_ioc_out_of_band_rejected() {
 
 /// PostOnly with out-of-band price is rejected at Step 0, never reaching the
 /// crossing check inside `store_post_only_limit_order`.
-#[tokio::test]
-async fn banding_post_only_out_of_band_rejected() {
+#[test]
+fn banding_post_only_out_of_band_rejected() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     submit_limit!(
@@ -177,8 +170,8 @@ async fn banding_post_only_out_of_band_rejected() {
 /// Market orders use `max_slippage`, not `limit_price`, so the band does not
 /// apply. A market order with wide slippage against an empty book fails only
 /// for lack of liquidity, not for banding reasons.
-#[tokio::test]
-async fn banding_does_not_affect_market_orders() {
+#[test]
+fn banding_does_not_affect_market_orders() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     suite
@@ -197,7 +190,6 @@ async fn banding_does_not_affect_market_orders() {
             })),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("no liquidity at acceptable price");
 }
 
@@ -205,8 +197,8 @@ async fn banding_does_not_affect_market_orders() {
 /// bid far below oracle — the precondition for the bad-debt-minting self-match
 /// attack — is rejected at submission. Without banding, this order would rest
 /// on the book and serve as the bad-price maker in the attack.
-#[tokio::test]
-async fn banding_blocks_pathological_post_only_trap() {
+#[test]
+fn banding_blocks_pathological_post_only_trap() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     // Oracle = $2,000, band = 10%. A PostOnly bid at $200 (90% below
@@ -236,8 +228,8 @@ async fn banding_blocks_pathological_post_only_trap() {
 /// cancels it, and then fills against an in-band maker deeper in the book.
 /// This verifies `continue` semantics (walk past the cancelled maker,
 /// rather than `break`-ing and leaving in-band liquidity unreached).
-#[tokio::test]
-async fn banding_drift_maker_cancelled_at_match_time() {
+#[test]
+fn banding_drift_maker_cancelled_at_match_time() {
     let (mut suite, mut accounts, contracts, pair) = setup_band_suite!();
 
     // Oracle at T1 = $2,000, band = 10% → allowed range [$1,800, $2,200].
@@ -258,7 +250,7 @@ async fn banding_drift_maker_cancelled_at_match_time() {
     // Oracle moves to $2,500 → new allowed range [$2,250, $2,750].
     //   - user1's $2,199 ask: now below the lower bound ($2,199 < $2,250).
     //     OUT of band.
-    register_oracle_prices(&mut suite, &mut accounts, 2_500).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_500);
 
     // user3 deposits and (at T2, in the new band) places a PostOnly ask
     // at $2,400 — this one stays in-band.
@@ -269,7 +261,6 @@ async fn banding_drift_maker_cancelled_at_match_time() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
     suite
         .execute(
@@ -289,7 +280,6 @@ async fn banding_drift_maker_cancelled_at_match_time() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // user2 market-buys size 2 with wide slippage. Walks asks ascending:
@@ -303,7 +293,6 @@ async fn banding_drift_maker_cancelled_at_match_time() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
     suite
         .execute(
@@ -321,17 +310,13 @@ async fn banding_drift_maker_cancelled_at_match_time() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // user1's stale ask was cancelled by the match-time check.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert!(
         orders.is_empty(),
@@ -342,12 +327,9 @@ async fn banding_drift_maker_cancelled_at_match_time() {
     // was cancelled without filling, so user2's size-2 order is only
     // half-filled.
     let user2_state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
     let pos = user2_state

@@ -1,22 +1,22 @@
 use {
     crate::{default_pair_param, default_param, register_oracle_prices},
-    std::{collections::BTreeMap, str::FromStr},
-    velox_app::CONTRACT_NAMESPACE,
-    velox_math::{Dec128_6, NumberConst, Uint128},
     velox_order_book::{
         Dimensionless, OrderId, OrderKind, Quantity, QueryOrdersByUserResponseItem, UsdPrice,
         UsdValue,
     },
-    velox_primitives::{
-        Addressable, Coins, Duration, QuerierExt, ResultExt, Timestamp, btree_map, concat,
-    },
-    velox_pyth_types::MarketSession,
-    velox_testing::{OracleTestEntry, TestOption, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
-        oracle::QueryPriceRequest,
+        oracle::{self, PriceSource, QueryPriceRequest},
         perps::{self, PairParam, Param},
     },
+    bolt::{
+        Addressable, Binary, ByteArray, Coins, Duration, NonEmpty, NumberConst, QuerierExt,
+        ResultExt, Timestamp, Udec128, Uint128, btree_map, concat,
+    },
+    bolt_app::CONTRACT_NAMESPACE,
+    pyth_types::{Channel, LeEcdsaMessage},
+    std::{collections::BTreeMap, str::FromStr},
 };
 
 /// Covers: add liquidity → vault trades → realized PnL reflected in share
@@ -35,12 +35,12 @@ use {
 /// | 9    | LP removes remaining shares                      | unlock reflects realized PnL                    |
 /// | 10   | Advance time past cooldown                       | unlocks credited to LP margin                   |
 /// | 11   | Verify total withdrawn ≈ $5k + vault profit      | —                                               |
-#[tokio::test]
-async fn vault_lp_lifecycle() {
+#[test]
+fn vault_lp_lifecycle() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     // Register oracle prices: ETH = $2,000, USDC = $1.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -55,7 +55,6 @@ async fn vault_lp_lifecycle() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -68,16 +67,12 @@ async fn vault_lp_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let lp_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -90,12 +85,9 @@ async fn vault_lp_lifecycle() {
     let total_shares = lp_state.vault_shares;
 
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -131,43 +123,28 @@ async fn vault_lp_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
     // Step 3: Call OnOracleUpdate so the vault places bid+ask.
     // -------------------------------------------------------------------------
 
-    suite.make_empty_block().await;
+    suite.make_empty_block();
 
     suite
         .execute(
             &mut accounts.owner,
             contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshIndexPrices {}),
+            &perps::ExecuteMsg::Vault(perps::VaultMsg::Refresh {}),
             Coins::new(),
         )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshVaultOrders {}),
-            Coins::new(),
-        )
-        .await
         .should_succeed();
 
     // Vault should have orders on the book.
     let vault_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     let vault_bids: Vec<_> = vault_orders
@@ -204,7 +181,6 @@ async fn vault_lp_lifecycle() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -223,17 +199,13 @@ async fn vault_lp_lifecycle() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Vault should now have a long position.
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
     let vault_pos = vault_state
@@ -250,32 +222,21 @@ async fn vault_lp_lifecycle() {
     // Step 5: Oracle → $2,200. Vault's long has unrealized profit.
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_200).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_200);
 
     // -------------------------------------------------------------------------
     // Step 6: OnOracleUpdate at $2,200 → vault refreshes orders.
     // -------------------------------------------------------------------------
 
-    suite.make_empty_block().await;
+    suite.make_empty_block();
 
     suite
         .execute(
             &mut accounts.owner,
             contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshIndexPrices {}),
+            &perps::ExecuteMsg::Vault(perps::VaultMsg::Refresh {}),
             Coins::new(),
         )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshVaultOrders {}),
-            Coins::new(),
-        )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -299,17 +260,13 @@ async fn vault_lp_lifecycle() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Vault should have realized PnL → margin increased above pre-trade level.
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -333,16 +290,12 @@ async fn vault_lp_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let lp_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let unlock1_amount = lp_state.unlocks.back().unwrap().amount_to_release;
@@ -369,16 +322,12 @@ async fn vault_lp_lifecycle() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let lp_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -394,19 +343,16 @@ async fn vault_lp_lifecycle() {
     // Step 10: Advance time past cooldown (1 day) so cron processes unlocks.
     // -------------------------------------------------------------------------
 
-    suite.increase_time(Duration::from_days(2)).await;
+    suite.increase_time(Duration::from_days(2));
 
     // -------------------------------------------------------------------------
     // Step 11: Verify total withdrawn reflects original $5k + vault profits.
     // -------------------------------------------------------------------------
 
     let lp_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -433,43 +379,41 @@ async fn vault_lp_lifecycle() {
     );
 }
 
-/// Verify that an oracle price update succeeds even when the perps contract
-/// is in a broken state, and that vault orders remain unchanged.
-///
-/// Under the old architecture the oracle's `FeedPrices` called perps
-/// `VaultMsg::Refresh` via a submessage with `reply_on_error`, so a perps
-/// failure had to be explicitly caught to avoid reverting the oracle update.
-/// Under the new architecture oracle feeding and perps refreshing are
-/// separate transactions injected by the proposal preparer, so a perps
-/// failure cannot affect the oracle by construction. The property this test
-/// asserts is therefore guaranteed structurally, making the test technically
-/// irrelevant, but we keep it since there is no cost.
-#[tokio::test]
-async fn oracle_triggers_on_oracle_update() {
+/// Verify that feeding Pyth prices triggers `OnOracleUpdate` (placing vault
+/// orders), and that when `OnOracleUpdate` fails the oracle price update is
+/// **not** reverted while the perps state changes from the failed call are
+/// rolled back.
+#[test]
+fn oracle_triggers_on_oracle_update() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     let pair = pair_id();
 
     // -------------------------------------------------------------------------
-    // Setup: Register Pyth price sources and seed USDC + a dummy ETH price.
-    // The real ETH price is fed via signed Pyth Lazer messages later.
+    // Setup: Register Pyth price source for the perps pair + Fixed USDC source.
+    // Genesis already registers the LAZER trusted signer with Timestamp::MAX.
+    // We override USDC to Fixed so we don't need a USDC Pyth feed in this test.
     // -------------------------------------------------------------------------
 
     suite
-        .seed_oracle_prices(
+        .execute(
             &mut accounts.owner,
-            btree_map! {
-                usdc::DENOM.clone() => OracleTestEntry {
-                    pyth_id: 1,
-                    humanized_price: UsdPrice::new_int(1),
+            contracts.oracle,
+            &oracle::ExecuteMsg::RegisterPriceSources(btree_map! {
+                usdc::DENOM.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::ONE,
+                    precision: usdc::DECIMAL as u8,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-                pair.clone() => OracleTestEntry {
-                    pyth_id: 2,
-                    humanized_price: UsdPrice::new_int(1),
+                pair.clone() => PriceSource::Pyth {
+                    id: 2,
+                    precision: 18,
+                    channel: Channel::RealTime,
                 },
-            },
+            }),
+            Coins::new(),
         )
-        .await;
+        .should_succeed();
 
     // -------------------------------------------------------------------------
     // Setup: Deposit USDC and add vault liquidity (follows vault_lp_lifecycle).
@@ -482,7 +426,6 @@ async fn oracle_triggers_on_oracle_update() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -495,7 +438,6 @@ async fn oracle_triggers_on_oracle_update() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -522,17 +464,13 @@ async fn oracle_triggers_on_oracle_update() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Vault should have no orders before any price is fed.
     let vault_orders_0: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     assert!(
@@ -545,39 +483,44 @@ async fn oracle_triggers_on_oracle_update() {
     // and the vault should place bid+ask orders.
     // -------------------------------------------------------------------------
 
-    let eth_price = UsdPrice::new(Dec128_6::from_str("2038.056").unwrap());
+    let message1 = LeEcdsaMessage {
+        payload: Binary::from_str(
+            "ddPHkyAnhCsRTAYAAQICAAAAAgDLzMJzLwAAAAT4/wcAAAACAPnb9QUAAAAABPj/",
+        )
+        .unwrap(),
+        signature: ByteArray::from_str(
+            "HJt9BJHEBuX0VhWDIjldnfwIYO9ufenGCVTMhQUwxhoYiX+TVDSqbNdQpXsRilNrS9Z7q/ET8obCBM9c97DmcQ==",
+        )
+        .unwrap(),
+        recovery_id: 1,
+    };
 
     suite
-        .feed_oracle_prices(
+        .execute(
             &mut accounts.owner,
-            &[(2, eth_price, MarketSession::Regular)],
-            Some(Timestamp::MAX - Duration::from_seconds(1)),
+            contracts.oracle,
+            &oracle::ExecuteMsg::FeedPrices(NonEmpty::new_unchecked(vec![message1])),
+            Coins::new(),
         )
-        .await;
+        .should_succeed();
 
     // Oracle price should be set for the perps pair.
     let price1 = suite
-        .query_wasm_smart(
-            contracts.oracle,
-            QueryPriceRequest {
-                denom: pair.clone(),
-            },
-        )
+        .query_wasm_smart(contracts.oracle, QueryPriceRequest {
+            denom: pair.clone(),
+        })
         .unwrap();
 
     assert!(
-        price1.humanized_price > UsdPrice::ZERO,
+        price1.humanized_price > Udec128::ZERO,
         "oracle price should be set after feeding"
     );
 
     // Vault should have orders on the book (placed by OnOracleUpdate).
     let vault_orders_1: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     let vo1_bids: Vec<_> = vault_orders_1
@@ -624,8 +567,8 @@ async fn oracle_triggers_on_oracle_update() {
     assert_eq!(vo1_asks[0].size, Quantity::new_int(-2));
 
     // -------------------------------------------------------------------------
-    // Step 2: Corrupt perps PARAM storage so RefreshVaultOrders will fail on
-    // the next invocation (deserialization error).
+    // Step 2: Corrupt perps PARAM storage so OnOracleUpdate will fail on the
+    // next invocation (deserialization error).
     // -------------------------------------------------------------------------
 
     suite.app.db.with_state_storage_mut(|storage| {
@@ -635,46 +578,51 @@ async fn oracle_triggers_on_oracle_update() {
     });
 
     // -------------------------------------------------------------------------
-    // Step 3: Feed price #2 without perps refresh. The oracle update succeeds
-    // independently. Then verify the perps refresh fails (corrupted storage)
-    // but the oracle price is still updated.
+    // Step 3: Feed price #2. The oracle update itself succeeds (reply_on_error
+    // catches the perps failure), but OnOracleUpdate rolls back its state
+    // changes, so vault orders remain unchanged.
     // -------------------------------------------------------------------------
 
-    suite
-        .do_oracle_actions(
-            &mut accounts.owner,
-            None,
-            Some((&[(2, eth_price, MarketSession::Regular)], Timestamp::MAX)),
-            false,
-            false,
+    let message2 = LeEcdsaMessage {
+        payload: Binary::from_str(
+            "ddPHk0DIiysRTAYAAQICAAAAAgD3e8JzLwAAAAT4/wcAAAACADDZ9QUAAAAABPj/",
         )
-        .await;
+        .unwrap(),
+        signature: ByteArray::from_str(
+            "kToxd5mWk50/kezThZVzUf7cFIJ7t/fpDs5TboBop5Av9MgXhfcwsFPxtPwXkN7zwxul1U+Z/EOVje4HW53BBg==",
+        )
+        .unwrap(),
+        recovery_id: 0,
+    };
+
+    suite
+        .execute(
+            &mut accounts.owner,
+            contracts.oracle,
+            &oracle::ExecuteMsg::FeedPrices(NonEmpty::new_unchecked(vec![message2])),
+            Coins::new(),
+        )
+        .should_succeed();
 
     // Oracle price should have been updated (new timestamp or value).
     let price2 = suite
-        .query_wasm_smart(
-            contracts.oracle,
-            QueryPriceRequest {
-                denom: pair.clone(),
-            },
-        )
+        .query_wasm_smart(contracts.oracle, QueryPriceRequest {
+            denom: pair.clone(),
+        })
         .unwrap();
 
     assert!(
         price2.timestamp >= price1.timestamp,
-        "oracle price should be updated despite perps failure"
+        "oracle price should be updated despite OnOracleUpdate failure"
     );
 
-    // Vault orders should be unchanged — we did not call refresh, and even if
-    // we tried, it would fail on the corrupted storage. Compare order IDs to
+    // Vault orders should be unchanged — the failed OnOracleUpdate rolled back
+    // any state changes it attempted (cancel + re-place). Compare order IDs to
     // prove these are the exact same orders, not new ones at the same price.
     let vault_orders_2: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     assert!(
@@ -682,7 +630,7 @@ async fn oracle_triggers_on_oracle_update() {
             .keys()
             .zip(vault_orders_2.keys())
             .all(|(a, b)| a == b),
-        "order IDs should be unchanged after skipped refresh"
+        "order IDs should be unchanged after failed OnOracleUpdate"
     );
 }
 
@@ -719,14 +667,14 @@ async fn oracle_triggers_on_oracle_update() {
 ///
 /// This test asserts the vault is healthy at step 6 and is expected to FAIL
 /// under the current code. Once the bug is fixed, this test should pass.
-#[tokio::test]
-async fn vault_overcommits_margin_after_position_and_price_drop() {
+#[test]
+fn vault_overcommits_margin_after_position_and_price_drop() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     let pair = pair_id();
 
     // Register oracle: ETH = $2,000, USDC = $1.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // -------------------------------------------------------------------------
     // Step 1: LP (user1) deposits $5,000 USDC and adds all of it as vault
@@ -740,7 +688,6 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(5_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -753,16 +700,12 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -795,7 +738,6 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -809,29 +751,15 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
         .execute(
             &mut accounts.owner,
             contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshIndexPrices {}),
+            &perps::ExecuteMsg::Vault(perps::VaultMsg::Refresh {}),
             Coins::new(),
         )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshVaultOrders {}),
-            Coins::new(),
-        )
-        .await
         .should_succeed();
 
     let vault_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     let vault_bid = vault_orders
@@ -855,7 +783,6 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -874,17 +801,13 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify vault has a long position.
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -904,23 +827,20 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
     //   Vault is STILL HEALTHY ($1,500 >= $1,062.50) but has $0 available.
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 1_700).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_700);
 
     // Sanity check: vault should be healthy at this point.
     let vault_ext: perps::UserStateExtended = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateExtendedRequest {
-                user: contracts.perps,
-                include_equity: true,
-                include_available_margin: true,
-                include_maintenance_margin: false,
-                include_unrealized_pnl: false,
-                include_unrealized_funding: false,
-                include_liquidation_price: false,
-                include_all: false,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateExtendedRequest {
+            user: contracts.perps,
+            include_equity: true,
+            include_available_margin: true,
+            include_maintenance_margin: false,
+            include_unrealized_pnl: false,
+            include_unrealized_funding: false,
+            include_liquidation_price: false,
+            include_all: false,
+        })
         .should_succeed();
 
     let equity_before = vault_ext.equity.unwrap();
@@ -956,20 +876,9 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
         .execute(
             &mut accounts.owner,
             contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshIndexPrices {}),
+            &perps::ExecuteMsg::Vault(perps::VaultMsg::Refresh {}),
             Coins::new(),
         )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshVaultOrders {}),
-            Coins::new(),
-        )
-        .await
         .should_succeed();
 
     // With the fix, available margin is $0, so the vault places NO orders.
@@ -983,12 +892,9 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
     //     .expect("vault should have a bid");
     // let round2_bid_size = vault_bid.size;
     let vault_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     assert!(
@@ -1021,7 +927,6 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
             })),
             Coins::new(),
         )
-        .await
         // OLD (incorrect) behavior: the vault had a bid, so this would succeed.
         // .should_succeed();
         .should_fail_with_error("no liquidity");
@@ -1035,19 +940,16 @@ async fn vault_overcommits_margin_after_position_and_price_drop() {
     // -------------------------------------------------------------------------
 
     let vault_ext: perps::UserStateExtended = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateExtendedRequest {
-                user: contracts.perps,
-                include_equity: true,
-                include_available_margin: false,
-                include_maintenance_margin: false,
-                include_unrealized_pnl: false,
-                include_unrealized_funding: false,
-                include_liquidation_price: false,
-                include_all: false,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateExtendedRequest {
+            user: contracts.perps,
+            include_equity: true,
+            include_available_margin: false,
+            include_maintenance_margin: false,
+            include_unrealized_pnl: false,
+            include_unrealized_funding: false,
+            include_liquidation_price: false,
+            include_all: false,
+        })
         .should_succeed();
 
     let equity = vault_ext.equity.unwrap();

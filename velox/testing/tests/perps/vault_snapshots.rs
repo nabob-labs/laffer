@@ -1,14 +1,13 @@
 use {
     crate::register_oracle_prices,
-    std::collections::BTreeMap,
-    velox_math::{NumberConst, Uint128},
     velox_order_book::{UsdValue, round_to_day},
-    velox_primitives::{Coins, Duration, QuerierExt, ResultExt, Timestamp},
     velox_testing::{TestOption, setup_test_naive},
     velox_types::{
         constants::usdc,
         perps::{self, VaultSnapshot},
     },
+    bolt::{Coins, Duration, NumberConst, QuerierExt, ResultExt, Timestamp, Uint128},
+    std::collections::BTreeMap,
 };
 
 /// Verifies that the perps cron writes one `(equity, share_supply)` snapshot
@@ -16,14 +15,14 @@ use {
 /// inclusive bounds.
 ///
 /// Note: the perps cron is scheduled with a 1-minute interval (see
-/// `velox/exchange/genesis/src/builder.rs`), so back-to-back tx blocks (250ms apart)
+/// `velox/genesis/src/builder.rs`), so back-to-back tx blocks (250ms apart)
 /// do not trigger it. We rely on `increase_time(1 day)` to push past the
 /// scheduling boundary and produce one snapshot per call.
-#[tokio::test]
-async fn vault_snapshots_accrue_daily() {
+#[test]
+fn vault_snapshots_accrue_daily() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // LP deposits collateral and adds liquidity. None of these short-interval
     // blocks trigger the perps cron (interval = 1 min, block time = 250ms),
@@ -35,7 +34,6 @@ async fn vault_snapshots_accrue_daily() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -48,17 +46,13 @@ async fn vault_snapshots_accrue_daily() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let snapshots: BTreeMap<Timestamp, VaultSnapshot> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryVaultSnapshotsRequest {
-                min: None,
-                max: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryVaultSnapshotsRequest {
+            min: None,
+            max: None,
+        })
         .should_succeed();
 
     assert!(
@@ -71,17 +65,14 @@ async fn vault_snapshots_accrue_daily() {
     // deposit ($5,000 equity, share_supply > 0).
     // ---------------------------------------------------------------------
 
-    suite.increase_time(Duration::from_days(1)).await;
+    suite.increase_time(Duration::from_days(1));
     let day_1 = round_to_day(suite.block.timestamp);
 
     let snapshots: BTreeMap<Timestamp, VaultSnapshot> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryVaultSnapshotsRequest {
-                min: None,
-                max: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryVaultSnapshotsRequest {
+            min: None,
+            max: None,
+        })
         .should_succeed();
 
     assert_eq!(snapshots.len(), 1);
@@ -105,22 +96,19 @@ async fn vault_snapshots_accrue_daily() {
     // Cross day 2 and day 3: one snapshot each.
     // ---------------------------------------------------------------------
 
-    suite.increase_time(Duration::from_days(1)).await;
+    suite.increase_time(Duration::from_days(1));
     let day_2 = round_to_day(suite.block.timestamp);
     assert_eq!(day_2, day_1 + Duration::from_days(1));
 
-    suite.increase_time(Duration::from_days(1)).await;
+    suite.increase_time(Duration::from_days(1));
     let day_3 = round_to_day(suite.block.timestamp);
     assert_eq!(day_3, day_2 + Duration::from_days(1));
 
     let snapshots: BTreeMap<Timestamp, VaultSnapshot> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryVaultSnapshotsRequest {
-                min: None,
-                max: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryVaultSnapshotsRequest {
+            min: None,
+            max: None,
+        })
         .should_succeed();
     let keys: Vec<_> = snapshots.keys().copied().collect();
     assert_eq!(keys, vec![day_1, day_2, day_3]);
@@ -131,26 +119,20 @@ async fn vault_snapshots_accrue_daily() {
 
     // `min == max == day_2` → one entry.
     let snapshots: BTreeMap<Timestamp, VaultSnapshot> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryVaultSnapshotsRequest {
-                min: Some(day_2),
-                max: Some(day_2),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryVaultSnapshotsRequest {
+            min: Some(day_2),
+            max: Some(day_2),
+        })
         .should_succeed();
     assert_eq!(snapshots.len(), 1);
     assert!(snapshots.contains_key(&day_2));
 
     // Range covering day_2..=day_3 → two entries.
     let snapshots: BTreeMap<Timestamp, VaultSnapshot> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryVaultSnapshotsRequest {
-                min: Some(day_2),
-                max: Some(day_3),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryVaultSnapshotsRequest {
+            min: Some(day_2),
+            max: Some(day_3),
+        })
         .should_succeed();
     assert_eq!(snapshots.len(), 2);
     assert!(snapshots.contains_key(&day_2));

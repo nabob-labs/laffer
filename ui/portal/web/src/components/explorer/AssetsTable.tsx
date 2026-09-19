@@ -1,0 +1,68 @@
+import { Cell, Table, useApp } from "@laffer/applets-kit";
+import { useConfig, usePrices } from "@laffer/store";
+
+import { formatUnits } from "@laffer/velox/utils";
+
+import type { TableClassNames, TableColumn } from "@laffer/applets-kit";
+import type { Coins } from "@laffer/velox/types";
+import type { AnyCoin, WithAmount, WithPrice } from "@laffer/store/types";
+
+export type AssetsTableProps = {
+  balances: Coins;
+  classNames?: TableClassNames;
+};
+
+export const AssetsTable: React.FC<AssetsTableProps> = ({ balances, classNames }) => {
+  const { coins } = useConfig();
+  const { settings } = useApp();
+  const { getPrice } = usePrices();
+  const { formatNumberOptions } = settings;
+
+  const data = Object.entries(balances).map(([denom, amount]) => {
+    const coin = coins.getCoinInfo(denom);
+    const price = getPrice(formatUnits(amount, coin.decimals).toString(), denom, {
+      format: true,
+      formatOptions: formatNumberOptions,
+    });
+
+    return { ...coin, price, amount };
+  });
+
+  const columns: TableColumn<WithAmount<WithPrice<AnyCoin>>> = [
+    {
+      header: "Asset",
+      cell: ({ row }) => <Cell.Asset asset={row.original} />,
+    },
+    {
+      header: "Market Price",
+      cell: ({ row }) => (
+        <Cell.MarketPrice denom={row.original.denom} formatOptions={formatNumberOptions} />
+      ),
+    },
+    {
+      header: "Available",
+      cell: ({ row }) => (
+        <Cell.Amount
+          amount={row.original.amount}
+          price={row.original.price}
+          decimals={row.original.decimals}
+        />
+      ),
+    },
+    {
+      header: "Total",
+      cell: ({ row }) => (
+        <Cell.Amount
+          className="text-end"
+          amount={row.original.amount}
+          price={row.original.price}
+          decimals={row.original.decimals}
+        />
+      ),
+    },
+  ];
+
+  if (!data.length) return null;
+
+  return <Table data={data} columns={columns} classNames={classNames} />;
+};

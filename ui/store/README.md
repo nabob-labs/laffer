@@ -1,0 +1,5 @@
+# @laffer/store
+
+## License
+
+TBD

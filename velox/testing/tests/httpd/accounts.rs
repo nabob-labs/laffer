@@ -1,26 +1,32 @@
 use {
+    crate::{
+        Accounts, PaginationDirection, accounts_query, build_actix_app, call_graphql_query,
+        paginate_accounts,
+    },
     assert_json_diff::assert_json_eq,
     assertor::*,
-    graphql_client::GraphQLQuery,
-    std::collections::BTreeSet,
-    tokio::{sync::mpsc, time::sleep},
-    velox_app::Indexer,
-    velox_indexer_graphql_types::{QueryApp, SubscribeAccounts, query_app, subscribe_accounts},
-    velox_primitives::{
-        Addressable, Coin, Coins, Inner, Json, JsonDeExt, JsonSerExt, QuerierExt, Query,
-        QueryBalanceRequest, QueryResponse, QueryWasmSmartRequest, ResultExt,
-    },
+    velox_graphql_types::{QueryApp, SubscribeAccounts, query_app, subscribe_accounts},
     velox_testing::{
-        Accounts, GraphQLCustomRequest, HyperlaneTestSuite, PaginationDirection, TestOption,
-        accounts_query, add_account_with_existing_user, build_app_service,
-        call_graphql_query_with_context, call_ws_graphql_stream, create_user_and_account,
-        paginate_accounts, parse_graphql_subscription_response, setup_test_with_indexer,
+        HyperlaneTestSuite, TestOption, add_account_with_existing_user, create_user_and_account,
+        setup_test_with_indexer,
     },
     velox_types::{
         account::{QueryMsg, QuerySeenNoncesRequest},
         auth::Nonce,
         constants::velox,
     },
+    graphql_client::GraphQLQuery,
+    bolt::{
+        Addressable, Coin, Coins, Inner, Json, JsonDeExt, QuerierExt, Query, QueryBalanceRequest,
+        QueryResponse, ResultExt,
+    },
+    bolt_app::Indexer,
+    bolt_types::{JsonSerExt, QueryWasmSmartRequest},
+    indexer_testing::{
+        GraphQLCustomRequest, call_ws_graphql_stream, parse_graphql_subscription_response,
+    },
+    std::collections::BTreeSet,
+    tokio::{sync::mpsc, time::sleep},
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -31,15 +37,15 @@ async fn query_accounts() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let user1 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
-    let user2 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let user1 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
+    let user2 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -48,7 +54,7 @@ async fn query_accounts() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response = call_graphql_query_with_context::<_, accounts_query::ResponseData>(
+                let response = call_graphql_query::<_, accounts_query::ResponseData>(
                     velox_httpd_context,
                     Accounts::build_query(accounts_query::Variables::default()),
                 )
@@ -78,14 +84,14 @@ async fn query_accounts_with_user_index() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -99,7 +105,7 @@ async fn query_accounts_with_user_index() -> anyhow::Result<()> {
                     ..Default::default()
                 };
 
-                let response = call_graphql_query_with_context::<_, accounts_query::ResponseData>(
+                let response = call_graphql_query::<_, accounts_query::ResponseData>(
                     velox_httpd_context,
                     Accounts::build_query(variables),
                 )
@@ -130,14 +136,14 @@ async fn query_accounts_with_wrong_user_index() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -151,7 +157,7 @@ async fn query_accounts_with_wrong_user_index() -> anyhow::Result<()> {
                     ..Default::default()
                 };
 
-                let response = call_graphql_query_with_context::<_, accounts_query::ResponseData>(
+                let response = call_graphql_query::<_, accounts_query::ResponseData>(
                     velox_httpd_context,
                     Accounts::build_query(variables),
                 )
@@ -178,8 +184,8 @@ async fn query_user_multiple_single_signature_accounts() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
@@ -187,10 +193,8 @@ async fn query_user_multiple_single_signature_accounts() -> anyhow::Result<()> {
 
     // Create two accounts under the same user. The two `TestAccount`'s should
     // have the same user index.
-    let mut test_account1 =
-        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
-    let test_account2 =
-        add_account_with_existing_user(&mut suite, &contracts, &mut test_account1).await;
+    let mut test_account1 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
+    let test_account2 = add_account_with_existing_user(&mut suite, &contracts, &mut test_account1);
     assert_eq!(test_account1.user_index(), test_account2.user_index());
 
     suite.app.indexer.wait_for_finish().await?;
@@ -207,12 +211,11 @@ async fn query_user_multiple_single_signature_accounts() -> anyhow::Result<()> {
 
                 // Trying to figure out a bug
                 for _ in 0..10 {
-                    let response =
-                        call_graphql_query_with_context::<_, accounts_query::ResponseData>(
-                            velox_httpd_context.clone(),
-                            Accounts::build_query(variables.clone()),
-                        )
-                        .await?;
+                    let response = call_graphql_query::<_, accounts_query::ResponseData>(
+                        velox_httpd_context.clone(),
+                        Accounts::build_query(variables.clone()),
+                    )
+                    .await?;
 
                     let data = response.data.unwrap();
 
@@ -228,7 +231,7 @@ async fn query_user_multiple_single_signature_accounts() -> anyhow::Result<()> {
                     sleep(std::time::Duration::from_millis(1000)).await;
                 }
 
-                let response = call_graphql_query_with_context::<_, accounts_query::ResponseData>(
+                let response = call_graphql_query::<_, accounts_query::ResponseData>(
                     velox_httpd_context,
                     Accounts::build_query(variables),
                 )
@@ -269,8 +272,8 @@ async fn graphql_paginate_accounts() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
@@ -278,7 +281,7 @@ async fn graphql_paginate_accounts() -> anyhow::Result<()> {
 
     // Create 10 accounts to paginate through
     for _ in 0..10 {
-        let _user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+        let _user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
     }
 
     suite.app.indexer.wait_for_finish().await?;
@@ -383,15 +386,14 @@ async fn graphql_subscribe_to_accounts() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let _test_account =
-        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let _test_account = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -408,7 +410,7 @@ async fn graphql_subscribe_to_accounts() -> anyhow::Result<()> {
     tokio::spawn(async move {
         while let Some(_idx) = rx.recv().await {
             let _test_account =
-                create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+                create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
         }
         Ok::<(), anyhow::Error>(())
     });
@@ -418,7 +420,7 @@ async fn graphql_subscribe_to_accounts() -> anyhow::Result<()> {
             tokio::task::spawn_local(async move {
                 let name = request_body.name;
                 let (_srv, _ws, mut framed) =
-                    call_ws_graphql_stream(velox_httpd_context, build_app_service, request_body)
+                    call_ws_graphql_stream(velox_httpd_context, build_actix_app, request_body)
                         .await?;
 
                 // 1st response - parse as typed subscription response
@@ -468,15 +470,14 @@ async fn graphql_subscribe_to_accounts_with_user_index() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let mut test_account1 =
-        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let mut test_account1 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
     let user_index = test_account1.user_index() as i64;
 
     suite.app.indexer.wait_for_finish().await?;
@@ -498,11 +499,11 @@ async fn graphql_subscribe_to_accounts_with_user_index() -> anyhow::Result<()> {
         while let Some(_idx) = rx.recv().await {
             // Create a new account with a new user index, to see if the subscription filters it out
             let _test_account =
-                create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+                create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
             // Create a new account with the original user
             let _test_account2 =
-                add_account_with_existing_user(&mut suite, &contracts, &mut test_account1).await;
+                add_account_with_existing_user(&mut suite, &contracts, &mut test_account1);
 
             suite.app.indexer.wait_for_finish().await?;
         }
@@ -515,7 +516,7 @@ async fn graphql_subscribe_to_accounts_with_user_index() -> anyhow::Result<()> {
         .run_until(async {
             tokio::task::spawn_local(async move {
                 let (_srv, _ws, mut framed) =
-                    call_ws_graphql_stream(velox_httpd_context, build_app_service, request_body)
+                    call_ws_graphql_stream(velox_httpd_context, build_actix_app, request_body)
                         .await?;
 
                 // 1st response is always accounts from the last block if any
@@ -547,7 +548,7 @@ async fn graphql_subscribe_to_accounts_with_user_index() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn graphql_returns_account_owner_nonces() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, _, _, velox_httpd_context, _, _, _db_guard) =
+    let (mut suite, mut accounts, _, _, _, _, velox_httpd_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
 
     // copied from `tracked_nonces_works``
@@ -558,7 +559,6 @@ async fn graphql_returns_account_owner_nonces() -> anyhow::Result<()> {
                 accounts.user1.address(),
                 Coins::one(velox::DENOM.clone(), 123).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -568,7 +568,7 @@ async fn graphql_returns_account_owner_nonces() -> anyhow::Result<()> {
         .query_wasm_smart(accounts.owner.address(), QuerySeenNoncesRequest {})
         .should_succeed_and_equal((0..20).collect());
 
-    let body_request = velox_primitives::Query::WasmSmart(QueryWasmSmartRequest {
+    let body_request = bolt_types::Query::WasmSmart(QueryWasmSmartRequest {
         contract: accounts.owner.address(),
         msg: (QueryMsg::SeenNonces {}).to_json_value()?,
     })
@@ -584,7 +584,7 @@ async fn graphql_returns_account_owner_nonces() -> anyhow::Result<()> {
                     ..Default::default()
                 };
 
-                let response = call_graphql_query_with_context::<_, query_app::ResponseData>(
+                let response = call_graphql_query::<_, query_app::ResponseData>(
                     velox_httpd_context,
                     QueryApp::build_query(variables),
                 )
@@ -608,7 +608,7 @@ async fn graphql_returns_account_owner_nonces() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn graphql_returns_address_balance() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, _, _, velox_httpd_context, _, _, _db_guard) =
+    let (mut suite, mut accounts, _, _, _, _, velox_httpd_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
 
     // copied from `tracked_nonces_works``
@@ -619,22 +619,22 @@ async fn graphql_returns_address_balance() -> anyhow::Result<()> {
                 accounts.user1.address(),
                 Coins::one(velox::DENOM.clone(), 123).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
     let balance = suite
         .app
-        .do_query_app(Query::balance(
-            accounts.user1.address(),
-            velox::DENOM.clone(),
-        ))
+        .do_query_app(
+            Query::balance(accounts.user1.address(), velox::DENOM.clone()),
+            Some(20),
+            false,
+        )
         .unwrap()
         .into_balance();
 
     suite.app.indexer.wait_for_finish().await?;
 
-    let body_request = velox_primitives::Query::Balance(QueryBalanceRequest {
+    let body_request = bolt_types::Query::Balance(QueryBalanceRequest {
         address: accounts.user1.address(),
         denom: velox::DENOM.clone(),
     })
@@ -650,7 +650,7 @@ async fn graphql_returns_address_balance() -> anyhow::Result<()> {
                     ..Default::default()
                 };
 
-                let response = call_graphql_query_with_context::<_, query_app::ResponseData>(
+                let response = call_graphql_query::<_, query_app::ResponseData>(
                     velox_httpd_context,
                     QueryApp::build_query(variables),
                 )

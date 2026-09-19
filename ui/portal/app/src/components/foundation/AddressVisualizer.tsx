@@ -1,0 +1,149 @@
+import { useQuery } from "@tanstack/react-query";
+import { useAccount, useAppConfig, useConfig, usePublicClient } from "@laffer/store";
+
+import DGXLogo from "@laffer/foundation/images/pwa.png";
+import TruncateText from "./TruncateText";
+import { IconLink } from "./icons/IconLink";
+import { View, Text, Pressable } from "react-native";
+import { IconUserCircle } from "./icons/IconUserCircle";
+
+import { twMerge } from "@laffer/foundation";
+
+import type React from "react";
+import type { ViewProps } from "react-native";
+import type { Address, AllLeafKeys, AppConfig } from "@laffer/velox/types";
+
+type AddressVisualizerProps = {
+  address: Address;
+  classNames?: {
+    container?: string;
+    text?: string;
+  };
+  withIcon?: boolean;
+  onClick?: (url: string) => void;
+} & ViewProps;
+
+type AddressInfo = { name: string; type: string };
+
+const VELOX_CONTRACT_NAMES: Record<AllLeafKeys<AppConfig["addresses"]>, string> = {
+  accountFactory: "Account Factory",
+  dex: "DEX",
+  gateway: "Gateway",
+  ism: "ISM",
+  lending: "Lending",
+  mailbox: "Mailbox",
+  oracle: "Oracle",
+  taxman: "Taxman",
+  va: "VA",
+  warp: "Warp",
+  perps: "Perps",
+};
+
+export const AddressVisualizer: React.FC<AddressVisualizerProps> = ({
+  address,
+  classNames,
+  withIcon,
+  onClick,
+  ...rest
+}) => {
+  const { data: config } = useAppConfig();
+  const { chain } = useConfig();
+  const { accounts, username: currentUsername } = useAccount();
+  const client = usePublicClient();
+
+  const blockExplorer = chain.blockExplorer;
+  const isClickable = !!onClick;
+
+  const { data } = useQuery({
+    queryKey: ["address_visualizer", config, address],
+    queryFn: async () => {
+      const contractKey = (config?.addresses as any)?.[address] as
+        | AllLeafKeys<AppConfig["addresses"]>
+        | undefined;
+
+      if (contractKey) {
+        return {
+          contract: {
+            name: VELOX_CONTRACT_NAMES[contractKey],
+            type: "velox",
+          } as AddressInfo,
+        };
+      }
+
+      const userAccount = accounts?.find((a) => a.address === address);
+      if (userAccount) {
+        return {
+          account: {
+            name: currentUsername
+              ? `${currentUsername} #${userAccount.index}`
+              : `Account #${userAccount.index}`,
+            type: "own",
+          } as AddressInfo,
+        };
+      }
+
+      const acc = await client.getAccountInfo({ address });
+      if (acc) {
+        return {
+          account: {
+            name: `${acc.username} #${acc.index}`,
+            type: "other",
+          } as AddressInfo,
+        };
+      }
+
+      const contract = await client.getContractInfo({ address });
+      if (contract?.label) {
+        return {
+          contract: {
+            name: contract.label,
+            type: "other",
+          } as AddressInfo,
+        };
+      }
+
+      return {};
+    },
+  });
+
+  const { contract, account } = (data || {}) as { contract?: AddressInfo; account?: AddressInfo };
+
+  const Container = isClickable ? Pressable : View;
+
+  const contractUrl = blockExplorer.contractPage.replace("${address}", address);
+  const accountUrl = blockExplorer.accountPage.replace("${address}", address);
+
+  if (contract) {
+    return (
+      <Container
+        onPress={isClickable ? () => onClick?.(contractUrl) : undefined}
+        accessibilityRole={isClickable ? "button" : undefined}
+        className={twMerge("flex-row items-center gap-1", classNames?.container)}
+        {...rest}
+      >
+        {withIcon ? <DGXLogo width={16} height={16} /> : null}
+        <Text className={twMerge("diatype-m-bold", classNames?.text)}>{contract.name}</Text>
+        {isClickable ? <IconLink className="w-4 h-4" /> : null}
+      </Container>
+    );
+  }
+
+  if (account) {
+    return (
+      <Container
+        onPress={isClickable ? () => onClick?.(accountUrl) : undefined}
+        accessibilityRole={isClickable ? "button" : undefined}
+        className={twMerge("flex-row items-center gap-1", classNames?.container)}
+        {...rest}
+      >
+        {withIcon ? (
+          <IconUserCircle className="w-4 h-4 fill-primitives-rice-light-50 text-primitives-rice-light-500 rounded-full overflow-hidden" />
+        ) : null}
+        <Text className={twMerge("diatype-m-bold", classNames?.text)}>{account.name}</Text>
+        {isClickable ? <IconLink className="w-4 h-4" /> : null}
+      </Container>
+    );
+  }
+
+  return <TruncateText text={address} className={classNames?.text} />;
+};

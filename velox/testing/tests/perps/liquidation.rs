@@ -1,22 +1,21 @@
 use {
     crate::{default_pair_param, register_oracle_prices},
-    std::collections::BTreeMap,
-    velox_math::Uint128,
     velox_order_book::{
         Dimensionless, OrderId, OrderKind, Quantity, QueryOrdersByUserResponseItem, TimeInForce,
         TriggerDirection, UsdPrice, UsdValue,
     },
-    velox_primitives::{
-        Addressable, CheckedContractEvent, Coins, Duration, JsonDeExt, QuerierExt, ResultExt,
-        SearchEvent, btree_map,
-    },
-    velox_testing::{TestOption, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
         perps::{
             self, Deleveraged, Liquidated, OrderFilled, PairParam, Param, RateSchedule, UserState,
         },
     },
+    bolt::{
+        Addressable, CheckedContractEvent, Coins, Duration, JsonDeExt, QuerierExt, ResultExt,
+        SearchEvent, Uint128, btree_map,
+    },
+    std::collections::BTreeMap,
 };
 
 /// Return the genesis-default global params with `liquidation_fee_rate = ZERO`.
@@ -57,12 +56,12 @@ fn default_param_no_liq_fee() -> Param {
 /// | 4    | Oracle drops to $1,450                          | PnL = 5x($1,450-$2,000) = -$2,750; equity = $240; MM = 5x$1,450x5% = $362.50                                       | equity < MM -> liquidatable                                                            |
 /// | 5    | Bidder places bid: 5 ETH @ $1,450               | —                                                                                                                  | —                                                                                      |
 /// | 6    | Liquidate trader                                | deficit = $122.50; close ~1.689655 ETH via book; liq_fee ~$24.50; margin after ~$2,036.19; ~3.31 ETH position stays | trader position reduced; trader margin ~$2,036; vault margin += ~$24.50; bidder filled |
-#[tokio::test]
-async fn liquidation_on_order_book() {
+#[test]
+fn liquidation_on_order_book() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     // Register oracle prices: ETH = $2,000, USDC = $1.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -79,7 +78,6 @@ async fn liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -92,7 +90,6 @@ async fn liquidation_on_order_book() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -102,7 +99,6 @@ async fn liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(3_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -116,7 +112,6 @@ async fn liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -137,7 +132,6 @@ async fn liquidation_on_order_book() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -161,17 +155,13 @@ async fn liquidation_on_order_book() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify position: 5 ETH long @ $2,000, margin = $2,990.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let pos = state
@@ -192,7 +182,7 @@ async fn liquidation_on_order_book() {
     // MM = 5 * $1,450 * 5% = $362.50; equity < MM -> liquidatable.
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 1_450).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_450);
 
     // -------------------------------------------------------------------------
     // Step 5: Bidder (user3) deposits $10,000 USDC and places bid: 5 ETH @ $1,450.
@@ -205,7 +195,6 @@ async fn liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -226,7 +215,6 @@ async fn liquidation_on_order_book() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -235,7 +223,7 @@ async fn liquidation_on_order_book() {
     // Partial liquidation: deficit = MM - equity = $362.50 - $240 = $122.50
     // close_amount = ceil($122.50 / ($1,450 * 5%)) = 1.689656 ETH
     // (ceil rounding guarantees at least one ULP of progress; see
-    // `compute_close_schedule` in `velox/exchange/perps/src/core/closure.rs`).
+    // `compute_close_schedule` in `velox/perps/src/core/closure.rs`).
     //
     // Matched against bidder's bid at $1,450 (zero taker/maker fee for liq fills).
     // Realized PnL = 1.689656 * ($1,450 - $2,000) = -$929.310800
@@ -246,17 +234,14 @@ async fn liquidation_on_order_book() {
 
     // Capture vault margin before liquidation.
     let vault_state_before = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
     let vault_margin_before = vault_state_before.unwrap().margin;
 
     // Anyone can call Liquidate.
-    let liq_events = suite
+    suite
         .execute(
             &mut accounts.owner,
             contracts.perps,
@@ -265,47 +250,13 @@ async fn liquidation_on_order_book() {
             }),
             Coins::new(),
         )
-        .await
-        .should_succeed()
-        .events;
-
-    // The book absorbed the whole close, so the single Liquidated event takes
-    // the no-ADL shape — and must report the position size left after the
-    // partial close: 5 - 1.689656 = 3.310344 ETH, the same value the state
-    // query asserts below.
-    let liquidated_events = liq_events
-        .search_event::<CheckedContractEvent>()
-        .with_predicate(|e| e.ty == "liquidated")
-        .take()
-        .all()
-        .into_iter()
-        .map(|e| e.event.data.deserialize_json::<Liquidated>().unwrap())
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        liquidated_events.len(),
-        1,
-        "one Liquidated event for the single scheduled pair"
-    );
-    let liq = &liquidated_events[0];
-    assert_eq!(liq.user, accounts.user1.address());
-    assert_eq!(liq.adl_size, Quantity::ZERO, "book absorbed the close");
-    assert_eq!(liq.adl_price, None, "no ADL, no ADL price");
-    assert_eq!(liq.adl_realized_pnl, UsdValue::ZERO);
-    assert_eq!(
-        liq.remaining_position_size,
-        Some(Quantity::new_raw(3_310_344)),
-        "Liquidated must report the post-close position size on a partial close"
-    );
+        .should_succeed();
 
     // Trader position should be reduced from 5 to ~3.310345 ETH (partial close).
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let pos = state
@@ -342,12 +293,9 @@ async fn liquidation_on_order_book() {
 
     // Vault margin should be unchanged (fee goes to insurance fund, not vault).
     let vault_state_after: Option<UserState> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
     let vault_margin_after = vault_state_after.unwrap().margin;
 
@@ -358,12 +306,9 @@ async fn liquidation_on_order_book() {
 
     // Bidder (user3) should have ~1.689655 ETH long @ $1,450.
     let bidder_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user3.address(),
+        })
         .should_succeed()
         .unwrap();
     let bidder_pos = bidder_state
@@ -383,261 +328,6 @@ async fn liquidation_on_order_book() {
     );
 }
 
-/// Covers: dust-snap during liquidation — when the deficit-driven close
-/// would leave a remainder smaller than `pair_param.min_order_size`, the
-/// whole position is closed instead.
-///
-/// Same fixture as `liquidation_on_order_book` plus:
-/// - Pair param configured with `min_order_size = $5,000`.
-/// - Bidder posts a 5 ETH bid (enough to absorb the full close, not just
-///   the deficit-driven partial).
-///
-/// Without the snap, deficit-only close would be ~1.689656 ETH, leaving
-/// ~3.310344 ETH @ $1,450 ≈ $4,800 of dust position. $4,800 < $5,000
-/// triggers the snap → full close of 5 ETH.
-#[tokio::test]
-async fn liquidation_snaps_to_full_close_when_remainder_would_be_dust() {
-    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
-
-    let pair = pair_id();
-
-    // Configure the pair with a $5,000 `min_order_size` floor. Everything
-    // else mirrors the default.
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::Configure {
-                param: crate::default_param(),
-                pair_params: btree_map! {
-                    pair.clone() => PairParam {
-                        min_order_size: UsdValue::new_int(5_000),
-                        ..crate::default_pair_param()
-                    },
-                },
-            }),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // -------------------------------------------------------------------------
-    // LP funds the vault; trader (user1) deposits $3,000.
-    // -------------------------------------------------------------------------
-
-    suite
-        .execute(
-            &mut accounts.user4,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-            Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.user4,
-            contracts.perps,
-            &perps::ExecuteMsg::Vault(perps::VaultMsg::AddLiquidity {
-                amount: UsdValue::new_int(100_000),
-                min_shares_to_mint: None,
-            }),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-            Coins::one(usdc::DENOM.clone(), Uint128::new(3_000_000_000)).unwrap(),
-        )
-        .await
-        .should_succeed();
-
-    // -------------------------------------------------------------------------
-    // Maker (user2) places ask: 5 ETH @ $2,000 ($10,000 notional > $5,000 min).
-    // -------------------------------------------------------------------------
-
-    suite
-        .execute(
-            &mut accounts.user2,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-            Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.user2,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(-5),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(2_000),
-                    time_in_force: TimeInForce::PostOnly,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // -------------------------------------------------------------------------
-    // Trader market buys 5 ETH. fee = $10; margin = $2,990; long 5 @ $2,000.
-    // -------------------------------------------------------------------------
-
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(5),
-                kind: OrderKind::Market {
-                    max_slippage: Dimensionless::new_percent(50),
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // -------------------------------------------------------------------------
-    // Oracle drops to $1,450 → trader liquidatable (same math as the parent
-    // test: equity $240, MM $362.50, deficit $122.50).
-    // -------------------------------------------------------------------------
-
-    register_oracle_prices(&mut suite, &mut accounts, 1_450).await;
-
-    // -------------------------------------------------------------------------
-    // Bidder (user3) posts a 5 ETH bid @ $1,450 ($7,250 notional > $5,000 min).
-    // -------------------------------------------------------------------------
-
-    suite
-        .execute(
-            &mut accounts.user3,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-            Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.user3,
-            contracts.perps,
-            &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(perps::SubmitOrderRequest {
-                pair_id: pair.clone(),
-                size: Quantity::new_int(5),
-                kind: OrderKind::Limit {
-                    limit_price: UsdPrice::new_int(1_450),
-                    time_in_force: TimeInForce::PostOnly,
-                    client_order_id: None,
-                },
-                reduce_only: false,
-                tp: None,
-                sl: None,
-            })),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // -------------------------------------------------------------------------
-    // Liquidate. The snap forces full close instead of the ~1.69 ETH partial.
-    //
-    // Realized PnL = 5 × ($1,450 - $2,000) = -$2,750
-    // Closed notional = 5 × $1,450 = $7,250
-    // Liq fee = $7,250 × 1% = $72.50
-    // Trader margin after = $2,990 - $2,750 - $72.50 = $167.50
-    // -------------------------------------------------------------------------
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::Liquidate {
-                user: accounts.user1.address(),
-            }),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // Trader position fully closed (snap fired). USER_STATES entry may
-    // survive with remaining margin, but the pair must not appear.
-    let trader_state: Option<UserState> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
-        .should_succeed();
-    let state = trader_state.expect("trader user state should still exist with remaining margin");
-    assert!(
-        !state.positions.contains_key(&pair),
-        "trader position should be fully closed by snap, found {:?}",
-        state.positions.get(&pair)
-    );
-    assert_eq!(
-        state.margin,
-        UsdValue::new_raw(167_500_000),
-        "trader margin should be $167.50 after full liquidation"
-    );
-
-    // Insurance fund received the full-close liquidation fee, $72.50,
-    // strictly larger than the $24.50 the deficit-only close would have
-    // produced — exactly the "more fee for the same overhead" knob the
-    // dust snap unlocks.
-    let global_state = suite
-        .query_wasm_smart(contracts.perps, perps::QueryStateRequest {})
-        .should_succeed();
-    assert_eq!(
-        global_state.insurance_fund,
-        UsdValue::new_raw(72_500_000),
-        "insurance fund should receive $72.50 liquidation fee (full close)"
-    );
-
-    // Bidder filled the full 5 ETH, not the ~1.69 ETH partial.
-    let bidder_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
-        .should_succeed()
-        .unwrap();
-    let bidder_pos = bidder_state
-        .positions
-        .get(&pair)
-        .expect("bidder should have ETH position");
-    assert_eq!(
-        bidder_pos.size,
-        Quantity::new_int(5),
-        "bidder should have full 5 ETH long after dust-snap full close"
-    );
-    assert_eq!(bidder_pos.entry_price, UsdPrice::new_int(1_450));
-}
-
 /// Covers: liquidation with ADL and insurance fund.
 ///
 /// | Step | Action                                    | Assert                                              |
@@ -652,12 +342,12 @@ async fn liquidation_snaps_to_full_close_when_remainder_would_be_dust() {
 /// | 8    | Oracle → $1,450                           | Trader A: PnL=-$2,750, equity=-$1,660               |
 /// | 9    | Liquidate Trader A                        | No bids → ADL against Trader B at bankruptcy price  |
 /// | 10   | Verify results                            | Trader B position reduced; insurance fund updated   |
-#[tokio::test]
-async fn liquidation_with_adl() {
+#[test]
+fn liquidation_with_adl() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     // Register oracle prices: ETH = $2,000, USDC = $1.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -672,7 +362,6 @@ async fn liquidation_with_adl() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(1_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -685,7 +374,6 @@ async fn liquidation_with_adl() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -699,7 +387,6 @@ async fn liquidation_with_adl() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(1_100_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -713,7 +400,6 @@ async fn liquidation_with_adl() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -734,7 +420,6 @@ async fn liquidation_with_adl() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -758,16 +443,12 @@ async fn liquidation_with_adl() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let state: Option<UserState> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert_eq!(state.unwrap().margin, UsdValue::new_int(1_090));
@@ -782,7 +463,6 @@ async fn liquidation_with_adl() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -806,7 +486,6 @@ async fn liquidation_with_adl() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -829,16 +508,12 @@ async fn liquidation_with_adl() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user3.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -850,7 +525,7 @@ async fn liquidation_with_adl() {
     // PnL = 5 * ($1,450 - $2,000) = -$2,750; equity = $1,090 - $2,750 = -$1,660.
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 1_450).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_450);
 
     // -------------------------------------------------------------------------
     // Step 9: Liquidate Trader A.
@@ -881,7 +556,6 @@ async fn liquidation_with_adl() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed()
         .events;
 
@@ -915,12 +589,6 @@ async fn liquidation_with_adl() {
         "v0.17.0+ Liquidated events always carry Some(adl_realized_funding); \
          with no funding accrued it must be Some(ZERO)"
     );
-    assert_eq!(
-        liq.remaining_position_size,
-        Some(Quantity::ZERO),
-        "liquidation fully closed Trader A's 5-long in this pair, so the \
-         resulting position size must be Some(ZERO)"
-    );
 
     // The Deleveraged event for the counter-party (Trader B) should
     // mirror the split: closing-only `realized_pnl = +$1,090` (Trader B
@@ -950,21 +618,12 @@ async fn liquidation_with_adl() {
         "v0.17.0+ Deleveraged events always carry Some(realized_funding); \
          with no funding accrued it must be Some(ZERO)"
     );
-    assert_eq!(
-        dlv.remaining_position_size,
-        Some(Quantity::ZERO),
-        "ADL closed Trader B's entire 5-short in this pair, so the resulting \
-         position size must be Some(ZERO)"
-    );
 
     // Trader A should have no positions and $0 margin.
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     // User state is empty (margin=0, no positions) — may be pruned.
@@ -977,12 +636,9 @@ async fn liquidation_with_adl() {
     // Step 10: Verify Trader B's position was ADL'd.
     // -------------------------------------------------------------------------
     let state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user3.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -1001,12 +657,9 @@ async fn liquidation_with_adl() {
 
     // Vault should be unaffected — no backstop, no bad debt.
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -1021,11 +674,11 @@ async fn liquidation_with_adl() {
 
 /// Liquidation cancels conditional orders alongside regular orders.
 /// Follows the pattern from `liquidation_on_order_book`.
-#[tokio::test]
-async fn liquidation_cancels_conditional_orders() {
+#[test]
+fn liquidation_cancels_conditional_orders() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -1037,7 +690,6 @@ async fn liquidation_cancels_conditional_orders() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1050,7 +702,6 @@ async fn liquidation_cancels_conditional_orders() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1060,7 +711,6 @@ async fn liquidation_cancels_conditional_orders() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(3_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Step 2: Maker (user2) deposits and places ask: 5 ETH @ $2,000.
@@ -1071,7 +721,6 @@ async fn liquidation_cancels_conditional_orders() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1092,7 +741,6 @@ async fn liquidation_cancels_conditional_orders() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Trader buys 5 ETH.
@@ -1112,7 +760,6 @@ async fn liquidation_cancels_conditional_orders() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Step 3: Trader submits TP and SL conditional orders.
@@ -1129,7 +776,6 @@ async fn liquidation_cancels_conditional_orders() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1145,17 +791,13 @@ async fn liquidation_cancels_conditional_orders() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify both conditional orders were placed.
     let state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let pos = state.positions.get(&pair).expect("should have position");
@@ -1169,7 +811,7 @@ async fn liquidation_cancels_conditional_orders() {
     );
 
     // Step 4: Oracle drops to $1,450.
-    register_oracle_prices(&mut suite, &mut accounts, 1_450).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_450);
 
     // Step 5: Bidder (user3) deposits and places bid: 5 ETH @ $1,450.
     suite
@@ -1179,7 +821,6 @@ async fn liquidation_cancels_conditional_orders() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1200,7 +841,6 @@ async fn liquidation_cancels_conditional_orders() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Step 6: Liquidate trader.
@@ -1213,27 +853,20 @@ async fn liquidation_cancels_conditional_orders() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Step 7: Verify state after liquidation.
     let state: Option<UserState> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     // All limit orders should have been canceled during liquidation.
     let all_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert!(
@@ -1277,13 +910,13 @@ async fn liquidation_cancels_conditional_orders() {
 ///   6. Liquidation closes vault's long against the bid
 ///   7. Assert: vault positions cleared, insurance fund received fee,
 ///      vault margin adjusted by PnL
-#[tokio::test]
-async fn vault_liquidation_on_order_book() {
+#[test]
+fn vault_liquidation_on_order_book() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     let pair = pair_id();
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // -------------------------------------------------------------------------
     // Step 1: LP (user1) deposits $5,000 USDC and adds all as vault liquidity.
@@ -1296,7 +929,6 @@ async fn vault_liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(5_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1309,7 +941,6 @@ async fn vault_liquidation_on_order_book() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1336,7 +967,6 @@ async fn vault_liquidation_on_order_book() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1347,29 +977,15 @@ async fn vault_liquidation_on_order_book() {
         .execute(
             &mut accounts.owner,
             contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshIndexPrices {}),
+            &perps::ExecuteMsg::Vault(perps::VaultMsg::Refresh {}),
             Coins::new(),
         )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshVaultOrders {}),
-            Coins::new(),
-        )
-        .await
         .should_succeed();
 
     let vault_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     let vault_bid = vault_orders
@@ -1391,7 +1007,6 @@ async fn vault_liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1410,17 +1025,13 @@ async fn vault_liquidation_on_order_book() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify vault is long.
     let vault_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -1439,23 +1050,20 @@ async fn vault_liquidation_on_order_book() {
     //   $250 < $1,000 → liquidatable
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 1_600).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_600);
 
     // Sanity: verify vault is liquidatable (equity < MM).
     let vault_ext: perps::UserStateExtended = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateExtendedRequest {
-                user: contracts.perps,
-                include_equity: true,
-                include_available_margin: false,
-                include_maintenance_margin: false,
-                include_unrealized_pnl: false,
-                include_unrealized_funding: false,
-                include_liquidation_price: false,
-                include_all: false,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateExtendedRequest {
+            user: contracts.perps,
+            include_equity: true,
+            include_available_margin: false,
+            include_maintenance_margin: false,
+            include_unrealized_pnl: false,
+            include_unrealized_funding: false,
+            include_liquidation_price: false,
+            include_all: false,
+        })
         .should_succeed();
 
     let equity = vault_ext.equity.unwrap();
@@ -1493,7 +1101,6 @@ async fn vault_liquidation_on_order_book() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1514,7 +1121,6 @@ async fn vault_liquidation_on_order_book() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1530,7 +1136,6 @@ async fn vault_liquidation_on_order_book() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -1540,12 +1145,9 @@ async fn vault_liquidation_on_order_book() {
     // Vault position should be reduced (partial liquidation closes just enough
     // to restore equity above maintenance margin).
     let vault_state_after = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
 
@@ -1572,19 +1174,16 @@ async fn vault_liquidation_on_order_book() {
     // This holds because liquidation_fee_rate = 0, so no fee erodes the
     // buffer created by the close schedule.
     let vault_ext_after: perps::UserStateExtended = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateExtendedRequest {
-                user: contracts.perps,
-                include_equity: true,
-                include_available_margin: false,
-                include_maintenance_margin: false,
-                include_unrealized_pnl: false,
-                include_unrealized_funding: false,
-                include_liquidation_price: false,
-                include_all: false,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateExtendedRequest {
+            user: contracts.perps,
+            include_equity: true,
+            include_available_margin: false,
+            include_maintenance_margin: false,
+            include_unrealized_pnl: false,
+            include_unrealized_funding: false,
+            include_liquidation_price: false,
+            include_all: false,
+        })
         .should_succeed();
 
     let equity_after = vault_ext_after.equity.unwrap();
@@ -1617,12 +1216,9 @@ async fn vault_liquidation_on_order_book() {
 
     // Bidder (user3) should now have a long position from absorbing the vault's close.
     let user3_state = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user3.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -1649,11 +1245,11 @@ async fn vault_liquidation_on_order_book() {
 ///
 /// This pins the BitMEX-style separation: order-book matches get a
 /// `fill_id`, position transfers at the bankruptcy price do not.
-#[tokio::test]
-async fn liquidation_book_fills_have_fill_id_adl_does_not() {
+#[test]
+fn liquidation_book_fills_have_fill_id_adl_does_not() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -1665,7 +1261,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(1_100_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Maker (user2) deposits enough to seed the book with plenty of asks,
@@ -1677,7 +1272,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(20_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Maker places ask: 5 ETH @ $2,000. Trader A fills it, ending long 5 ETH.
@@ -1699,7 +1293,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1718,7 +1311,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Trader B (user3) will be the ADL counter-party: short 5 ETH @ $2,000.
@@ -1730,7 +1322,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Maker places a bid so Trader B can short into it.
@@ -1752,7 +1343,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -1771,13 +1361,12 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Oracle drops to $1,450. Trader A is deeply underwater and forced
     // to close the full position; equity is negative so target_price for
     // book matching is the oracle ($1,450).
-    register_oracle_prices(&mut suite, &mut accounts, 1_450).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_450);
 
     // Partial book liquidity for the liquidation: Maker places a bid for
     // 2 ETH @ $1,450. Trader A's liquidation will fill this, then ADL
@@ -1800,7 +1389,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Liquidate Trader A. Expect book fills + ADL remainder.
@@ -1813,7 +1401,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed()
         .events;
 
@@ -1860,7 +1447,6 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
     // deserialize fine (extra fields ignored) but this assertion
     // documents the intended shape.
     let deleveraged_events = events
-        .clone()
         .search_event::<CheckedContractEvent>()
         .with_predicate(|e| e.ty == "deleveraged")
         .take()
@@ -1872,33 +1458,5 @@ async fn liquidation_book_fills_have_fill_id_adl_does_not() {
     assert!(
         !deleveraged_events.is_empty(),
         "liquidation should have ADL'd the remainder against a counter-party"
-    );
-
-    // The 3-ETH ADL leg only partially consumes Trader B's 5-ETH short: the
-    // Deleveraged event must report the -2 ETH that survives.
-    assert_eq!(deleveraged_events.len(), 1, "single ADL counter-party");
-    assert_eq!(deleveraged_events[0].user, accounts.user3.address());
-    assert_eq!(
-        deleveraged_events[0].remaining_position_size,
-        Some(Quantity::new_int(-2)),
-        "Deleveraged must report the counter-party's post-ADL position size"
-    );
-
-    // Trader A's full 5-ETH long is closed across the book leg (2) and the
-    // ADL leg (3), so the pair's Liquidated event reports a zero remainder.
-    let liquidated_events = events
-        .search_event::<CheckedContractEvent>()
-        .with_predicate(|e| e.ty == "liquidated")
-        .take()
-        .all()
-        .into_iter()
-        .map(|e| e.event.data.deserialize_json::<Liquidated>().unwrap())
-        .collect::<Vec<_>>();
-
-    assert_eq!(liquidated_events.len(), 1);
-    assert_eq!(
-        liquidated_events[0].remaining_position_size,
-        Some(Quantity::ZERO),
-        "the mixed book+ADL close wipes the whole position"
     );
 }

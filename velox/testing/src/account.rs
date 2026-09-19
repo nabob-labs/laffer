@@ -1,14 +1,5 @@
 use {
     crate::{TestSuite, create_signature},
-    k256::{ecdsa::SigningKey, elliptic_curve::rand_core::OsRng},
-    sha2::Sha256,
-    std::{array, collections::BTreeMap},
-    velox_app::{AppError, Db, Indexer, ProposalPreparer, Vm},
-    velox_primitives::{
-        Addr, Addressable, Coins, Defined, Duration, Hash256, HashExt, Json, JsonSerExt,
-        MaybeDefined, Message, NonEmpty, QuerierExt, QuerierWrapper, QueryClient, QueryClientExt,
-        ResultExt, SignData, Signer, StdError, StdResult, Tx, Undefined, UnsignedTx, btree_map,
-    },
     velox_types::{
         VeloxQuerier, account,
         account_factory::{
@@ -18,6 +9,15 @@ use {
         auth::{Credential, Key, Metadata, Nonce, SignDoc, Signature, StandardCredential},
         signer::SequencedSigner,
     },
+    bolt::{
+        Addr, Addressable, Coins, Defined, Duration, Hash256, HashExt, Json, JsonSerExt,
+        MaybeDefined, Message, NonEmpty, QuerierExt, QuerierWrapper, QueryClient, QueryClientExt,
+        ResultExt, SignData, Signer, StdError, StdResult, Tx, Undefined, UnsignedTx, btree_map,
+    },
+    bolt_app::{AppError, Db, Indexer, ProposalPreparer, Vm},
+    k256::{ecdsa::SigningKey, elliptic_curve::rand_core::OsRng},
+    sha2::Sha256,
+    std::{array, collections::BTreeMap},
 };
 
 /// Accounts available for testing purposes.
@@ -153,12 +153,9 @@ impl TestAccount<Undefined<UserIndex>, Defined<Addr>> {
     ) -> TestAccount<Defined<UserIndex>, Defined<Addr>> {
         let account_factory = querier.query_account_factory().unwrap();
         let user_index = querier
-            .query_wasm_smart(
-                account_factory,
-                account_factory::QueryAccountRequest {
-                    address: self.address.into_inner(),
-                },
-            )
+            .query_wasm_smart(account_factory, account_factory::QueryAccountRequest {
+                address: self.address.into_inner(),
+            })
             .unwrap()
             .owner;
 
@@ -306,9 +303,9 @@ where
     A: MaybeDefined<Addr>,
 {
     /// Register the user
-    pub async fn register_user<DB, VM, PP, ID>(
+    pub fn register_user<PP, DB, VM, ID>(
         &self,
-        test_suite: &mut TestSuite<DB, VM, PP, ID>,
+        test_suite: &mut TestSuite<PP, DB, VM, ID>,
         factory: Addr,
         funds: Coins,
     ) where
@@ -341,7 +338,6 @@ where
                 },
                 funds,
             )
-            .await
             .should_succeed();
     }
 }
@@ -349,13 +345,13 @@ where
 impl<A> TestAccount<Defined<UserIndex>, A>
 where
     A: MaybeDefined<Addr>,
-    Self: Signer + Send + Sync,
+    Self: Signer,
 {
     /// Register a new account with the user index and key of this account and returns a new
     /// `TestAccount` with the new account's address.
-    pub async fn register_new_account<DB, VM, PP, ID>(
+    pub fn register_new_account<PP, DB, VM, ID>(
         &mut self,
-        test_suite: &mut TestSuite<DB, VM, PP, ID>,
+        test_suite: &mut TestSuite<PP, DB, VM, ID>,
         factory: Addr,
         funds: Coins,
     ) -> StdResult<TestAccount>
@@ -385,7 +381,6 @@ where
                 &account_factory::ExecuteMsg::RegisterAccount {},
                 funds,
             )
-            .await
             .should_succeed();
 
         Ok(TestAccount {
@@ -461,6 +456,7 @@ impl SequencedSigner for TestAccount {
             .query_wasm_smart(
                 self.address.into_inner(),
                 account::QuerySeenNoncesRequest {},
+                None,
             )
             .await?
             .last()

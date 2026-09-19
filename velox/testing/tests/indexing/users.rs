@@ -1,24 +1,23 @@
 use {
     assertor::*,
-    sea_orm::EntityTrait,
-    velox_app::Indexer,
     velox_indexer_sql::entity,
     velox_testing::{
         HyperlaneTestSuite, TestOption, add_user_public_key, create_user_and_account,
         setup_test_with_indexer,
     },
+    bolt_app::Indexer,
+    sea_orm::EntityTrait,
 };
 
 #[tokio::test(flavor = "multi_thread")]
 async fn index_single_user_multiple_public_keys() -> anyhow::Result<()> {
-    let (suite, mut accounts, codes, contracts, validator_sets, velox_context, _, _, _db_guard) =
+    let (suite, mut accounts, codes, contracts, validator_sets, _, velox_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let mut test_account1 =
-        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let mut test_account1 = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
-    let (pk, key_hash) = add_user_public_key(&mut suite, &contracts, &mut test_account1).await;
+    let (pk, key_hash) = add_user_public_key(&mut suite, &contracts, &mut test_account1);
 
     suite.app.indexer.wait_for_finish().await?;
 

@@ -1,10 +1,10 @@
 use {
+    bolt::ByteArray,
+    identity::Identity256,
     k256::{
         ecdsa::{Signature, SigningKey, signature::DigestSigner},
         elliptic_curve::rand_core::OsRng,
     },
-    velox_identity::Identity256,
-    velox_primitives::ByteArray,
 };
 
 pub fn generate_random_key() -> (SigningKey, ByteArray<33>) {

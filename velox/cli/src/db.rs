@@ -2,9 +2,9 @@ use {
     crate::home_directory::HomeDirectory,
     clap::Subcommand,
     colored::Colorize,
+    bolt_app::{Db, SimpleCommitment},
+    bolt_db_disk::DiskDb,
     std::fs,
-    velox_app::{Db, SimpleCommitment},
-    velox_db_disk::DiskDb,
 };
 
 #[derive(Subcommand)]
@@ -34,7 +34,7 @@ impl DbCmd {
 
                 println!("Latest version: {:?}", db.latest_version());
                 println!("Oldest version: {:?}", db.oldest_version());
-            }
+            },
             DbCmd::Reset { yes } => {
                 if !yes {
                     confirm(
@@ -47,7 +47,7 @@ impl DbCmd {
                 }
 
                 fs::remove_dir_all(data_dir)?;
-            }
+            },
         }
 
         Ok(())

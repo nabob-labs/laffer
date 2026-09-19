@@ -1,0 +1,30 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "velox-auth"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[dependencies]
+alloy         = { workspace = true, features = ["dyn-abi", "eip712"] }
+anyhow        = { workspace = true }
+velox-types   = { workspace = true }
+data-encoding = { workspace = true }
+bolt          = { workspace = true }
+hex           = { workspace = true }
+serde         = { workspace = true }
+sha2          = { workspace = true }
+
+[dev-dependencies]
+data-encoding = { workspace = true }
+eth-utils     = { workspace = true }
+hex-literal   = { workspace = true }
+identity      = { workspace = true }
+k256          = { workspace = true }
+p256          = { workspace = true }
+rand          = { workspace = true }
+serde_json    = { workspace = true }

@@ -48,14 +48,13 @@
 
 use {
     crate::{default_pair_param, default_param, register_oracle_prices},
-    velox_math::Uint128,
     velox_order_book::{Dimensionless, OrderKind, Quantity, TimeInForce, UsdPrice, UsdValue},
-    velox_primitives::{Addressable, Coins, QuerierExt, ResultExt, btree_map},
-    velox_testing::{TestOption, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
         perps::{self, PairParam, UserState},
     },
+    bolt::{Addressable, Coins, QuerierExt, ResultExt, Uint128, btree_map},
 };
 
 /// Reproduces the ADL bankruptcy-price bug with an absurd resting ask.
@@ -68,12 +67,12 @@ use {
 /// | 4    | Oracle → $2,300                               | user1 equity=-$460, MM=$575 → liquidatable     |
 /// | 5    | Liquidate user1                               | 1 ETH fills at $100k, 4 ETH ADL'd at ~-$22,240 |
 /// | 6    | Verify                                        | user3 margin deeply negative (bug)             |
-#[tokio::test]
-async fn adl_bug_absurd_book_price() {
+#[test]
+fn adl_bug_absurd_book_price() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     // Oracle = $2,000.
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let pair = pair_id();
 
@@ -99,7 +98,6 @@ async fn adl_bug_absurd_book_price() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -113,7 +111,6 @@ async fn adl_bug_absurd_book_price() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -134,7 +131,6 @@ async fn adl_bug_absurd_book_price() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -152,7 +148,6 @@ async fn adl_bug_absurd_book_price() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(1_050_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -171,17 +166,13 @@ async fn adl_bug_absurd_book_price() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify positions.
     let state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -189,12 +180,9 @@ async fn adl_bug_absurd_book_price() {
     assert_eq!(state.positions[&pair].size, Quantity::new_int(-5));
 
     let state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user3.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -216,7 +204,6 @@ async fn adl_bug_absurd_book_price() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -237,7 +224,6 @@ async fn adl_bug_absurd_book_price() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -254,7 +240,7 @@ async fn adl_bug_absurd_book_price() {
     //   → close entire SHORT position
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_300).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_300);
 
     // -------------------------------------------------------------------------
     // Step 5: Liquidate user1.
@@ -301,7 +287,6 @@ async fn adl_bug_absurd_book_price() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
@@ -315,12 +300,9 @@ async fn adl_bug_absurd_book_price() {
 
     // user1 (liquidated): should have no positions and ~$0 margin.
     let user1_state: Option<UserState> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert!(
@@ -337,12 +319,9 @@ async fn adl_bug_absurd_book_price() {
     //   PnL = 5 × ($2,208 − $2,000) = +$1,040
     //   margin = $10,000 + $1,040 = $11,040
     let user3_state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user3.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user3.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -369,12 +348,9 @@ async fn adl_bug_absurd_book_price() {
     // After the fix: the bankruptcy price ($2,208) is used as target_price,
     // so the $100,000 ask is never matched. user2 should have no position.
     let user2_state: UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
 

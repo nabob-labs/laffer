@@ -1,8 +1,8 @@
 use {
     velox_auth::MAX_NONCE_INCREASE,
-    velox_primitives::{Addressable, JsonSerExt, Message, NonEmpty, ResultExt, Tx, coins},
     velox_testing::setup_test_naive,
     velox_types::constants::velox,
+    bolt::{Addressable, JsonSerExt, Message, NonEmpty, ResultExt, Tx, coins},
 };
 
 /// An account's first ever transaction typically have a nonce of 0. However, we

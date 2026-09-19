@@ -2,13 +2,13 @@ use {
     crate::error::Result,
     chrono::{DateTime, Utc},
     clickhouse::Row,
+    bolt::Udec128_6,
     serde::{Deserialize, Serialize},
-    velox_math::Udec128_6,
 };
 #[cfg(feature = "async-graphql")]
 use {
     async_graphql::{ComplexObject, SimpleObject},
-    velox_primitives::Timestamp,
+    bolt_types::Timestamp,
 };
 
 #[derive(Debug, Row, Serialize, Deserialize, Eq, PartialEq, Clone)]
@@ -19,19 +19,19 @@ pub struct PerpsPairPrice {
     #[cfg_attr(feature = "async-graphql", graphql(name = "pairId"))]
     pub pair_id: String,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub high: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub low: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub close: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub volume: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub volume_usd: Udec128_6,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
     #[serde(with = "clickhouse::serde::chrono::datetime64::micros")]
@@ -108,35 +108,5 @@ impl PerpsPairPrice {
             .bind(since.timestamp_micros())
             .fetch_all()
             .await?)
-    }
-}
-
-pub mod dec {
-    use {
-        serde::{
-            de::{self, Deserializer},
-            ser::{Serialize, Serializer},
-        },
-        velox_math::{Dec, Int},
-        velox_primitives::Inner,
-    };
-
-    pub fn serialize<S, U, const D: u32>(dec: &Dec<U, D>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        U: Serialize,
-    {
-        dec.inner().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D, U, const S: u32>(deserializer: D) -> Result<Dec<U, S>, D::Error>
-    where
-        D: Deserializer<'de>,
-        U: de::Deserialize<'de>,
-    {
-        let inner: U = <_ as de::Deserialize<'de>>::deserialize(deserializer)?;
-        let uint = Int::new(inner);
-        let dec = Dec::raw(uint);
-        Ok(dec)
     }
 }

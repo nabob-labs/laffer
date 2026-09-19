@@ -36,7 +36,7 @@ impl ScalarType for GraphqlBigDecimal {
                 } else {
                     return Err(InputValueError::custom("Unsupported numeric value"));
                 }
-            }
+            },
             Value::String(s) => BigDecimal::from_str(s).map_err(InputValueError::custom)?,
             _ => return Err(InputValueError::expected_type(value)),
         };

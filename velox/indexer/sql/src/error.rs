@@ -1,126 +1,35 @@
-use {crate::pubsub::error::PubSubError, velox_app::AppError, velox_primitives::StdError};
+use {error_backtrace::Backtraceable, indexer_sql::pubsub::error::PubSubError};
 
-#[velox_backtrace::backtrace]
+#[error_backtrace::backtrace]
 #[derive(Debug, thiserror::Error)]
-pub enum IndexerError {
+pub enum Error {
     #[error("sea_orm error: {0}")]
     #[backtrace(new)]
     SeaOrm(sea_orm::error::DbErr),
 
-    #[error("anyhow error: {0}")]
-    Anyhow(anyhow::Error),
-
-    #[error("join error: {0}")]
-    #[backtrace(new)]
-    Join(tokio::task::JoinError),
-
-    #[error("indexing error: {error}")]
-    Indexing { error: String },
-
-    #[error("mutex poison error: {error}")]
-    Poison { error: String },
-
-    #[error(transparent)]
-    #[backtrace(new)]
-    TryFromInt(std::num::TryFromIntError),
-
-    #[error(transparent)]
-    App(AppError),
-
-    #[error(transparent)]
-    Std(StdError),
-
-    #[error(transparent)]
-    #[backtrace(new)]
-    Io(std::io::Error),
-
-    #[error(transparent)]
-    #[backtrace(new)]
-    Persist(tempfile::PersistError),
-
-    #[error(transparent)]
-    Persistence(velox_disk_saver::error::Error),
-
     #[error("wrong event type")]
     WrongEventType,
 
-    #[error(transparent)]
+    #[error("serde error: {0}")]
     #[backtrace(new)]
-    SerdeJson(serde_json::Error),
+    Serde(serde_json::Error),
 
-    #[error("parse error: {0}")]
-    #[backtrace(new)]
-    Parse(std::num::ParseIntError),
-
-    #[error(transparent)]
-    #[backtrace(new)]
-    Sqlx(sqlx::Error),
+    #[error("bolt error: {0}")]
+    Std(bolt::StdError),
 
     #[error(transparent)]
     PubSub(PubSubError),
+
+    #[error(transparent)]
+    #[backtrace(new)]
+    Join(tokio::task::JoinError),
 }
 
-macro_rules! parse_error {
-    ($variant:ident, $e:expr) => {
-        velox_app::IndexerError::$variant {
-            error: $e.to_string(),
-            backtrace: $e.backtrace,
-        }
-    };
-    ($variant:ident, $e:expr, $bt:expr) => {
-        velox_app::IndexerError::$variant {
-            error: $e.to_string(),
-            backtrace: $bt,
-        }
-    };
-}
-
-impl From<IndexerError> for velox_app::IndexerError {
-    fn from(err: IndexerError) -> Self {
-        match err {
-            IndexerError::SeaOrm(e) => parse_error!(Database, e),
-            IndexerError::Anyhow(e) => parse_error!(Generic, e),
-            IndexerError::Join(e) => parse_error!(Generic, e),
-            IndexerError::Indexing { error, backtrace } => parse_error!(Generic, error, backtrace),
-            IndexerError::Poison { error, backtrace } => parse_error!(Generic, error, backtrace),
-            IndexerError::TryFromInt(e) => parse_error!(Generic, e),
-            IndexerError::App(be) => {
-                // For App errors, just wrap as generic since it's already processed
-                velox_app::IndexerError::Generic {
-                    error: "nested app error".to_string(),
-                    backtrace: be.backtrace,
-                }
-            }
-            IndexerError::Std(e) => parse_error!(Generic, e),
-            IndexerError::Io(e) => parse_error!(Io, e),
-            IndexerError::Persist(e) => parse_error!(Io, e),
-            IndexerError::Persistence(e) => parse_error!(Storage, e),
-            IndexerError::WrongEventType(backtrace) => velox_app::IndexerError::Hook {
-                error: "wrong event type".to_string(),
-                backtrace,
-            },
-            IndexerError::SerdeJson(e) => parse_error!(Serialization, e),
-            IndexerError::Parse(e) => parse_error!(Generic, e),
-            IndexerError::Sqlx(e) => parse_error!(Database, e),
-            IndexerError::PubSub(e) => parse_error!(Generic, e),
+impl From<Error> for bolt_app::IndexerError {
+    fn from(error: Error) -> Self {
+        bolt_app::IndexerError::Hook {
+            error: error.error(),
+            backtrace: error.backtrace(),
         }
     }
-}
-
-impl<T> From<std::sync::PoisonError<T>> for IndexerError {
-    fn from(err: std::sync::PoisonError<T>) -> Self {
-        IndexerError::poison(err.to_string())
-    }
-}
-
-pub type Result<T> = core::result::Result<T, IndexerError>;
-
-#[macro_export]
-macro_rules! bail {
-    ($variant:path, $msg:expr) => {
-        return Err($variant($msg.into()).into());
-    };
-    ($($arg:tt)*) => {
-        return Err($crate::error::IndexerError::indexing(format!($($arg)*)));
-    };
 }

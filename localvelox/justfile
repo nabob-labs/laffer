@@ -1,0 +1,122 @@
+# Ensure these are consistent with the values in `docker-compose.yml`.
+DB_HOST := "db"
+DB_PORT := "5432"
+DB_USER := "postgres"
+DB_NAME := "bolt_dev"
+
+# List available recipes
+default:
+  @just --list
+
+start-velox:
+    set -a; source .env; set +a; \
+    INDEXER__CLICKHOUSE__URL="http://localhost:8123" \
+    INDEXER__DATABASE__URL="postgres://postgres@localhost:5432/bolt_dev" \
+    TENDERMINT__RPC_ADDR="http://localhost:26657" \
+    cargo run --bin velox start --home ./configs/velox
+
+start-velox-release:
+  set -a; source .env; set +a; \
+  INDEXER__CLICKHOUSE__URL="http://localhost:8123" \
+  INDEXER__DATABASE__URL="postgres://postgres@localhost:5432/bolt_dev" \
+  TENDERMINT__RPC_ADDR="http://localhost:26657" \
+  cargo run --release --bin velox start --home ./configs/velox
+
+# Start the localnet
+start-inner profiles="" files="":
+  #!/usr/bin/env bash
+  set -e
+
+  cleanup() {
+    local exit_code=$?
+    case "$1" in
+      "SIGINT")
+        echo "Received SIGINT. Shutting down..."
+        ;;
+      "SIGTERM")
+        echo "Received SIGTERM. Shutting down..."
+        ;;
+      "")
+        if [ $exit_code -ne 0 ]; then
+          echo "Command failed with exit code $exit_code. Shutting down..."
+        fi
+        ;;
+    esac
+
+    docker compose {{files}} --profile analytics --profile faucet --profile velox --profile dex-bot down --remove-orphans
+    exit $exit_code
+  }
+
+  trap 'cleanup SIGINT' INT
+  trap 'cleanup SIGTERM' TERM
+  trap 'cleanup' ERR
+
+  docker compose {{files}} {{profiles}} up --wait
+  docker compose {{files}} logs -f
+
+start-without-velox:
+      FAUCET_VELOX_ENDPOINT=http://host.docker.internal:8080 \
+      VELOX_ABCI_ENDPOINT=tcp://host.docker.internal:26658 \
+      just start-inner "--profile analytics --profile faucet" "-f docker-compose.yml"
+
+start-dex-bot:
+      DEX_BOT_VELOX_ENDPOINT=http://host.docker.internal:8080 \
+      docker compose --profile dex-bot up dex-bot dex-bot-init --wait
+
+start:
+  just start-inner "--profile analytics --profile faucet --profile velox --profile dex-bot" "-f docker-compose.yml -f docker-compose.velox.yml"
+
+# Stop the localnet
+stop:
+  docker compose down --remove-orphans
+
+logs:
+  docker compose logs -f db -f velox -f cometbft -f clickhouse -f dex-bot
+
+# Delete the generate data in order to restart a new localnet from scratch
+reset:
+  rm -rf ./configs/velox/data
+  rm -rf ./configs/velox/indexer
+  docker compose down -v velox cometbft prometheus grafana alertmanager loki db clickhouse dex-bot faucet promtail push_gateway node-exporter
+  # `docker compose down -v` should delete volumes, but leaving just in case
+  docker volume rm -f localvelox_prometheus_data localvelox_grafana_data localvelox_alertmanager_data localvelox_loki_data localvelox_db_data localvelox_velox_data localvelox_velox_indexer localvelox_cometbft_data localvelox_clickhouse_data localvelox_clickhouse_logs
+
+full-reset:
+  docker compose down --remove-orphans
+  docker network prune -f
+  docker container prune -f
+
+# Run the development database
+run-dev-db:
+  docker compose up db
+
+# Check whether the development database is running
+check-dev-db:
+  docker compose run --rm db pg_isready -h {{DB_HOST}} -p {{DB_PORT}} -U {{DB_USER}}
+
+restore-clickhouse filename:
+  docker compose exec clickhouse clickhouse-client --query "RESTORE DATABASE testnet_velox_production FROM File('/var/log/clickhouse-server/backups/{{filename}}')"
+
+# Create the development database
+create-dev-db:
+  docker compose run --rm db createdb -h {{DB_HOST}} -p {{DB_PORT}} -U {{DB_USER}} {{DB_NAME}}
+
+# Remove the development database
+drop-dev-db:
+  docker compose run --rm db dropdb -h {{DB_HOST}} -p {{DB_PORT}} -U {{DB_USER}} {{DB_NAME}}
+
+# Migrate the development database
+migrate-dev-db:
+  sea-orm-cli migrate up -d sql-migration
+
+# Reset the development database
+refresh-dev-db:
+  sea-orm-cli migrate refresh
+
+# Generate entity from the datatabase for Bolt
+generate-bolt-entity:
+  sea-orm-cli generate entity -o sql/src/entity --model-extra-derives 'Default' --ignore-tables 'transfers,accounts,velox_seaql_migrations,bolt_seaql_migrations,seaql_migrations'
+
+# Generate entity from the datatabase for Velox
+generate-velox-entity:
+  sea-orm-cli generate entity -o sql/src/entity --model-extra-derives 'Default' --ignore-tables 'blocks,messages,transactions,events,velox_seaql_migrations,bolt_seaql_migrations,seaql_migrations'

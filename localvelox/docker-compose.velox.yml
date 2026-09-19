@@ -1,0 +1,13 @@
+services:
+  dex-bot:
+    depends_on:
+      velox:
+        condition: service_healthy
+      cometbft:
+        condition: service_healthy
+  dex-bot-init:
+    depends_on:
+      velox:
+        condition: service_healthy
+      dex-bot:
+        condition: service_started

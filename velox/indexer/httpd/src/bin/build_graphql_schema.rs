@@ -1,15 +1,14 @@
 use {
     async_graphql::Schema,
-    velox_indexer_httpd::graphql::{
-        mutation::IndexerMutation, query::FullQuery, subscription::FullSubscription,
-    },
+    velox_httpd::graphql::{query::Query, subscription::Subscription},
+    indexer_httpd::graphql::mutation::IndexerMutation,
 };
 
 fn main() {
     let schema = Schema::build(
-        FullQuery::default(),
+        Query::default(),
         IndexerMutation::default(),
-        FullSubscription::default(),
+        Subscription::default(),
     )
     .finish();
 

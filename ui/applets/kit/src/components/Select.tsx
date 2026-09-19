@@ -1,0 +1,280 @@
+import {
+  Children,
+  forwardRef,
+  isValidElement,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import { useClickAway } from "../hooks/useClickAway.js";
+import { createContext, useControlledState } from "@laffer/foundation";
+
+import { AnimatePresence, motion } from "framer-motion";
+import { IconChevronDownFill } from "./icons/IconChevronDownFill";
+
+import { tv } from "tailwind-variants";
+import { twMerge } from "@laffer/foundation";
+
+import type { PropsWithChildren, ReactElement, ReactNode } from "react";
+import type React from "react";
+import type { VariantProps } from "tailwind-variants";
+
+export interface SelectRef {
+  toggle: () => void;
+  open: () => void;
+  getIsOpen: () => boolean;
+}
+
+type SelectItemPropsInternal = { value: string; children?: ReactNode };
+
+const [Provider, useSelect] = createContext<{
+  selected: string;
+  setSelected: (val: string) => void;
+  slots: ReturnType<typeof selectVariants>;
+  classNames?: SelectProps["classNames"];
+}>({ name: "SelectContext", strict: true });
+
+export interface SelectProps extends VariantProps<typeof selectVariants> {
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  value?: string;
+  label?: string;
+  variant?: "boxed" | "plain";
+  placeholder?: string;
+  containerRef?: React.RefObject<HTMLElement | null>;
+  classNames?: {
+    base?: string;
+    listboxWrapper?: string;
+    listBoxContainer?: string;
+    listBoxItem?: string;
+    listbox?: string;
+    value?: string;
+    trigger?: string;
+    icon?: string;
+  };
+}
+
+const Root = forwardRef<SelectRef, PropsWithChildren<SelectProps>>((props, ref) => {
+  const {
+    classNames,
+    children,
+    onChange,
+    value,
+    defaultValue,
+    isDisabled,
+    variant = "boxed",
+    label,
+    placeholder,
+    containerRef,
+  } = props;
+
+  const selectRef = useRef<HTMLDivElement>(null);
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [selected, setSelected] = useControlledState(
+    value,
+    (v) => {
+      onChange?.(v);
+      setIsOpen(false);
+    },
+    defaultValue,
+  );
+
+  useImperativeHandle(ref, () => ({
+    toggle: () => !isDisabled && setIsOpen((prev) => !prev),
+    open: () => !isDisabled && setIsOpen(true),
+    getIsOpen: () => isOpen,
+  }));
+
+  const slots = selectVariants({ isDisabled, variant });
+  const { base, trigger, listboxWrapper, icon, listBoxContainer } = slots;
+
+  const ignoreRefs = useMemo(() => (containerRef ? [containerRef] : []), [containerRef]);
+
+  useClickAway(selectRef, () => setIsOpen(false), ["mousedown", "touchstart"], ignoreRefs);
+
+  return (
+    <Provider value={{ selected, setSelected, slots, classNames }}>
+      <div className={base({ className: classNames?.base })}>
+        {label ? (
+          <label className="exposure-sm-italic text-ink-secondary-700" htmlFor={label}>
+            {label}
+          </label>
+        ) : null}
+        <div className="relative w-full" ref={selectRef}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              !isDisabled && setIsOpen((prev) => !prev);
+            }}
+            className={trigger({ className: classNames?.trigger })}
+          >
+            {placeholder && !selected ? (
+              <span className="lc-select-trigger-value">{placeholder}</span>
+            ) : (
+              <span className="lc-select-trigger-value">
+                {
+                  (
+                    Children.toArray(children).find(
+                      (e) =>
+                        isValidElement(e) &&
+                        selected === (e as ReactElement<SelectItemPropsInternal>).props.value,
+                    ) as ReactElement<SelectItemPropsInternal> | undefined
+                  )?.props.children
+                }
+              </span>
+            )}
+            <IconChevronDownFill
+              className={twMerge(icon(), classNames?.icon, { "rotate-180": isOpen })}
+            />
+          </button>
+
+          <motion.div
+            className={listboxWrapper({
+              className: classNames?.listboxWrapper,
+            })}
+          >
+            <AnimatePresence>
+              {isOpen && (
+                <motion.div
+                  style={{ overflow: "hidden" }}
+                  initial={{ height: 0 }}
+                  animate={{ transition: { duration: 0.1 }, height: isOpen ? "auto" : 0 }}
+                  exit={{ height: 0 }}
+                >
+                  <motion.ul
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.05 }}
+                    className={twMerge(listBoxContainer(), classNames?.listBoxContainer)}
+                  >
+                    {children}
+                  </motion.ul>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        </div>
+      </div>
+    </Provider>
+  );
+});
+
+type SelectItemProps = {
+  value: string;
+  className?: string;
+};
+
+const Item: React.FC<PropsWithChildren<SelectItemProps>> = ({ value, children }) => {
+  const { setSelected, slots, classNames } = useSelect();
+
+  return (
+    <li
+      value={value}
+      onClick={() => setSelected(value)}
+      className={twMerge("lc-select-list-item", slots.listBoxItem(), classNames?.listBoxItem)}
+    >
+      {children}
+    </li>
+  );
+};
+
+type NativeSelectProps = {
+  classNames?: {
+    base?: string;
+    trigger?: string;
+    icon?: string;
+  };
+  variant: "boxed" | "plain";
+};
+
+export const NativeSelect: React.FC<PropsWithChildren<NativeSelectProps>> = ({
+  children,
+  classNames,
+  variant = "boxed",
+}) => {
+  const selectId = useId();
+  const { setSelected, selected } = useSelect();
+
+  const slots = selectVariants({ isDisabled: false, variant });
+  const { base, trigger } = slots;
+
+  const SelectedItem = Children.toArray(children).find(
+    (e) =>
+      isValidElement(e) && selected === (e as ReactElement<SelectItemPropsInternal>).props.value,
+  ) as ReactElement<SelectItemPropsInternal> | undefined;
+
+  return (
+    <div className={twMerge("relative md:hidden block", base(), classNames?.base)}>
+      <select
+        id={selectId}
+        className="absolute inset-0 z-10 opacity-0 w-full h-full cursor-pointer appearance-none"
+        onChange={(e) => setSelected(e.target.value)}
+      >
+        {Children.toArray(children).map((child) => {
+          if (isValidElement<SelectItemPropsInternal>(child)) {
+            const { value, children: childContent } = child.props;
+            return (
+              <option key={value} value={value}>
+                {typeof childContent === "string" ? childContent : value}
+              </option>
+            );
+          }
+          return null;
+        })}
+      </select>
+      <label htmlFor={selectId} className={twMerge(trigger(), classNames?.trigger)}>
+        <span>{SelectedItem?.props.children}</span>
+        <IconChevronDownFill className={twMerge("w-4 h-4 pointer-events-none")} />
+      </label>
+    </div>
+  );
+};
+
+const selectVariants = tv({
+  slots: {
+    base: "group inline-flex flex-col gap-1 relative w-fit leading-none",
+    listboxWrapper:
+      "overflow-hidden max-h-[12rem] transition-all z-50 shadow-account-card bg-surface-secondary-rice absolute min-w-full w-max",
+    listBoxContainer:
+      "max-h-[12rem] outline-none gap-1 flex flex-col scrollbar-none overflow-auto min-w-full w-max",
+    listBoxItem: "outline-none cursor-pointer flex items-center transition-all leading-none",
+    trigger:
+      "w-full inline-flex tap-highlight-transparent flex-row items-center justify-between outline-none",
+    icon: "pointer-events-none w-4 h-4 transition-[transform] duration-300",
+  },
+  variants: {
+    variant: {
+      boxed: {
+        base: "",
+        listboxWrapper: "rounded-md top-[calc(100%+0.5rem)]",
+        listBoxContainer: "p-2",
+        listBoxItem:
+          "rounded-sm py-2 px-3 text-base diatype-m-medium bg-surface-secondary-rice hover:bg-surface-tertiary-rice",
+        trigger:
+          "shadow-account-card bg-surface-secondary-rice h-[46px] px-4 py-3 rounded-md diatype-m-regular gap-3 md:min-w-[12.375rem]",
+      },
+      plain: {
+        base: "min-w-fit",
+        listboxWrapper: "diatype-xs-regular rounded-sm top-[calc(100%+0.2rem)]",
+        listBoxContainer: "p-1",
+        listBoxItem:
+          "rounded-sm py-1 px-2 text-sm diatype-xs-regular bg-surface-secondary-rice hover:bg-surface-tertiary-rice",
+        trigger: "diatype-xs-regular group-hover:text-ink-primary-900 gap-1",
+        icon: "w-3 h-3 group-hover:text-ink-primary-900",
+      },
+    },
+    isDisabled: {
+      true: {
+        trigger: "bg-surface-disabled-gray text-ink-quaternary-200 cursor-not-allowed",
+      },
+    },
+  },
+});
+
+export const Select = Object.assign(Root, {
+  Item,
+});

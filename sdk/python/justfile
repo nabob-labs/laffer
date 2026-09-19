@@ -1,0 +1,11 @@
+test:
+  uv run pytest
+
+lint:
+  uv run ruff check velox tests
+
+fmt:
+  uv run ruff format velox tests
+
+typecheck:
+  uv run mypy velox tests

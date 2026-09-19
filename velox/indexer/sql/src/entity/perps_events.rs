@@ -1,7 +1,7 @@
 #[cfg(feature = "async-graphql")]
 use {
     async_graphql::{ComplexObject, SimpleObject},
-    velox_primitives::Timestamp,
+    bolt::Timestamp,
 };
 use {
     sea_orm::entity::prelude::*,
@@ -23,7 +23,7 @@ pub struct Model {
     pub id: Uuid,
     pub idx: i32,
     #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(with = "crate::serde_iso8601")]
+    #[serde(with = "indexer_sql::serde_iso8601")]
     pub created_at: DateTime,
     pub block_height: i64,
     pub tx_hash: String,

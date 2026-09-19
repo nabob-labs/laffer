@@ -1,83 +1,87 @@
 [workspace]
 members = [
-    "velox/archive/app",
-    "velox/archive/block-source",
-    "velox/archive/cli",
-    "velox/archive/httpd",
-    "velox/archive/projection",
-    "velox/archive/testing",
-    "velox/archive/types",
-    "velox/cli",
-    "velox/core/app",
-    "velox/core/crypto",
-    "velox/core/db/disk",
-    "velox/core/db/memory",
-    "velox/core/ffi",
-    "velox/core/jellyfish-merkle",
-    "velox/core/macros",
-    "velox/core/math",
-    "velox/core/storage",
-    "velox/core/tester",
-    "velox/core/types",
-    "velox/core/vm/hybrid",
-    "velox/core/vm/rust",
-    "velox/core/vm/wasm",
-    "velox/exchange/account",
-    "velox/exchange/account-factory",
-    "velox/exchange/auth",
-    "velox/exchange/bank",
-    "velox/exchange/gateway",
-    "velox/exchange/genesis",
-    "velox/exchange/oracle",
-    "velox/exchange/order-book",
-    "velox/exchange/perps",
-    "velox/exchange/proposal-preparer",
-    "velox/exchange/types",
-    "velox/exchange/upgrade",
-    "velox/exchange/vesting",
-    "velox/exchange/warp",
-    "velox/hyperlane/isms/multisig",
-    "velox/hyperlane/mailbox",
-    "velox/hyperlane/types",
-    "velox/hyperlane/va",
-    "velox/indexer/cache",
-    "velox/indexer/clickhouse",
-    "velox/indexer/graphql-types",
-    "velox/indexer/hooked",
-    "velox/indexer/httpd",
-    "velox/indexer/metrics",
-    "velox/indexer/sql",
-    "velox/indexer/stream",
-    "velox/pyth/client",
-    "velox/pyth/types",
-    "velox/sdk",
-    "velox/sdk/cli",
-    "velox/testing",
-    "velox/utils/backtrace",
-    "velox/utils/backtrace/derive",
-    "velox/utils/config-parser",
-    "velox/utils/disk-saver",
-    "velox/utils/dyn-event",
-    "velox/utils/eth",
-    "velox/utils/identity",
-    "velox/utils/temp-rocksdb",
+  "velox/account",
+  "velox/account-factory",
+  "velox/auth",
+  "velox/bank",
+  "velox/cli",
+  "velox/dex",
+  "velox/gateway",
+  "velox/genesis",
+  "velox/indexer/clickhouse",
+  "velox/indexer/graphql-types",
+  "velox/indexer/httpd",
+  "velox/indexer/sql",
+  "velox/indexer/sql-migration",
+  "velox/mocks/httpd",
+  "velox/oracle",
+  "velox/order-book",
+  "velox/perps",
+  "velox/proposal-preparer",
+  "velox/taxman",
+  "velox/testing",
+  "velox/types",
+  "velox/upgrade",
+  "velox/vesting",
+  "velox/warp",
+  "bolt/app",
+  "bolt/crypto",
+  "bolt/db/disk",
+  "bolt/db/memory",
+  "bolt/ffi",
+  "bolt/httpd",
+  "bolt/jellyfish-merkle",
+  "bolt/macros",
+  "bolt/math",
+  "bolt/mocks/account",
+  "bolt/mocks/bank",
+  "bolt/mocks/taxman",
+  "bolt/std",
+  "bolt/storage",
+  "bolt/tester",
+  "bolt/testing",
+  "bolt/types",
+  "bolt/vm/rust",
+  "bolt/vm/wasm",
+  "hyperlane/isms/multisig",
+  "hyperlane/mailbox",
+  "hyperlane/testing",
+  "hyperlane/va",
+  "indexer/cache",
+  "indexer/disk-saver",
+  "indexer/hooked",
+  "indexer/httpd",
+  "indexer/sql",
+  "indexer/sql-migration",
+  "indexer/testing",
+  "pyth/client",
+  "pyth/types",
+  "sdk/rust",
+  "sdk/rust/cli",
+  "utils/config-parser",
+  "utils/dyn-event",
+  "utils/error-backtrace",
+  "utils/error-backtrace/derive",
+  "utils/eth",
+  "utils/identity",
+  "utils/temp-rocksdb",
 ]
-resolver = "3"
+resolver = "2"
 
 [workspace.package]
 authors       = ["Nabob Labs"]
 categories    = ["cryptography::cryptocurrencies"]
-documentation = "https://github.com/nabob-labs/laffer.git"
+documentation = "https://github.com/nabob-labs/laffer"
 edition       = "2024"
-homepage      = "https://github.com/nabob-labs/laffer.git"
+homepage      = "https://github.com/nabob-labs/laffer"
 keywords      = ["blockchain", "wasm"]
 license       = "Apache-2.0 license"
-repository    = "https://github.com/nabob-labs/laffer.git"
+repository    = "https://github.com/nabob-labs/laffer"
 rust-version  = "1.89" # clickhouse-rs 0.14 requires rust 1.89+
-version       = "0.0.0"
+version       = "1.0.0"
 
 [workspace.dependencies]
-# --------------------------- External dependencies ----------------------------
+actix                       = "0.13"
 actix-codec                 = "0.5"
 actix-cors                  = "0.7"
 actix-files                 = "0"
@@ -86,14 +90,14 @@ actix-service               = "2"
 actix-test                  = "0.1"
 actix-web                   = "4"
 actix-web-metrics           = "0.4"
-actix-ws                    = "0.4"
 aes-gcm                     = "0.10"
-alloy                       = "2"
+alloy                       = "1.1"
 anyhow                      = "1"
 assert-json-diff            = "2"
 assertor                    = "0.0.4"
 async-graphql               = { version = "7.0", features = ["apollo_persisted_queries", "apollo_tracing", "chrono", "dataloader", "decimal", "log", "opentelemetry", "tracing", "unblock", "url", "uuid"] }
 async-graphql-actix-web     = "7.0"
+async-std                   = { version = "1", features = ["attributes", "tokio1"] }
 async-stream                = "0"
 async-trait                 = "0"
 awc                         = "3"
@@ -101,16 +105,16 @@ aws-config                  = "1"
 aws-credential-types        = "1"
 aws-sdk-s3                  = "1"
 axum                        = { version = "0.8", features = ["ws"] }
+backtrace                   = "0.3"
 bigdecimal                  = "0.4"
 bip32                       = "0.5"
 blake2                      = "0.10"
 blake3                      = "1"
 bnum                        = "0.14"
 borsh                       = "1"
-byteorder                   = "1"
 chrono                      = "0.4"
 clap                        = { version = "4", features = ["derive"] }
-clickhouse                  = "0.15"
+clickhouse                  = "0.14"
 clru                        = "0.6"
 colored                     = "3"
 colored_json                = "5"
@@ -126,51 +130,56 @@ ed25519-dalek               = "2"
 elsa                        = "1"
 futures                     = "0.3"
 futures-util                = "0.3"
-graphql_client              = "0.16"
+graphql_client              = "0.14"
 hex                         = "0.4"
 hex-literal                 = "1"
 home                        = "0.5"
+http                        = "1"
+humantime                   = "2"
+ics23                       = "0.12"
 itertools                   = "0.14"
 k256                        = "0.13"
 libc                        = "0.2"
 lzma-rs                     = "0.3"
 metrics                     = "0.24"
 metrics-exporter-prometheus = "0.18"
+num-format                  = "0.4"
 num_cpus                    = "1"
-opentelemetry               = "0.32"
-opentelemetry-otlp          = { version = "0.32", features = ["grpc-tonic", "trace"] }
-opentelemetry_sdk           = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry               = "0.31"
+opentelemetry-otlp          = { version = "0.31", features = ["grpc-tonic", "trace"] }
+opentelemetry_sdk           = { version = "0.31", features = ["rt-tokio"] }
 ouroboros                   = "0.18"
 p256                        = "0.13"
 parking_lot                 = { version = "0.12", features = ["arc_lock", "send_guard"] }
 paste                       = "1"
 pbkdf2                      = "0.12"
+proc-macro2                 = "1"
+prometheus                  = "0.14"
 proptest                    = "1"
 prost                       = "0.14"
-pyth-lazer-client           = "25.0.0"
-pyth-lazer-protocol         = "0.40.0"
+pyth-lazer-client           = "22.0.0"
+pyth-lazer-protocol         = "0.35.0"
 quote                       = "1"
 rand                        = "0.8" # FIXME: can't bump to 0.10 because RustCrypto requires 0.8
-rangemap                    = "1"
 reqwest                     = { version = "0.13", features = ["stream"] }
 ripemd                      = "0.1"
 roaring                     = "0.11"
 rocksdb                     = "0.24"
 sea-orm                     = { version = "1", features = ["runtime-tokio-rustls", "sea-orm-internal", "sqlx-postgres", "sqlx-sqlite", "with-bigdecimal", "with-chrono", "with-json", "with-time", "with-uuid"] }
 sea-orm-migration           = { version = "1", features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite", "with-chrono", "with-json", "with-uuid"] }
-sentry                      = { version = "0.48", features = ["log", "logs", "tracing"] }
-sentry-actix                = "0.48"
+sentry                      = { version = "0.47", features = ["log", "logs", "tracing"] }
+sentry-actix                = "0.47"
 serde                       = "1"
 serde_json                  = "1"
 serde_with                  = "3"
+serial_test                 = "3"
 sha2                        = "0.10"
 sha3                        = "0.10"
 signature                   = "2"
-sqlx                        = "0.8" # FIXME: can't bump to 0.9 because sea-orm 1.x requires 0.8
+sqlx                        = "0.8"
 strum                       = "0.28"
 strum_macros                = "0.28"
 syn                         = "2"
-tar                         = "0.4"
 tempfile                    = "3"
 tendermint                  = "0.40.4"
 tendermint-rpc              = "0.40.4"
@@ -178,77 +187,89 @@ test-case                   = "3"
 thiserror                   = "2"
 tokio                       = { version = "1", features = ["full"] }
 tokio-stream                = { version = "0.1", features = ["sync"] }
-tokio-tungstenite           = { version = "0.29", features = ["native-tls"] }
+tokio-tungstenite           = { version = "0.28", features = ["native-tls"] }
+toml                        = "0.9"
 tower                       = "0.5"
 tower-abci                  = "0.19"
 tracing                     = { version = "0.1" }
-tracing-opentelemetry       = "0.33"
+tracing-attributes          = { version = "0.1" }
+tracing-opentelemetry       = "0.32"
 tracing-subscriber          = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 typenum                     = "1"
 url                         = "2.5.4"
 uuid                        = { version = "1", features = ["serde", "v4"] }
 wasmer                      = "7"
 wasmer-middlewares          = "7"
-xz2                         = "0.1"
-zstd                        = "0.13"
-# ----------------------------- Local dependencies -----------------------------
-velox-account               = { path = "velox/exchange/account" }
-velox-account-factory       = { path = "velox/exchange/account-factory" }
-velox-app                   = { path = "velox/core/app" }
-velox-archive-app           = { path = "velox/archive/app" }
-velox-archive-block-source  = { path = "velox/archive/block-source" }
-velox-archive-httpd         = { path = "velox/archive/httpd" }
-velox-archive-projection    = { path = "velox/archive/projection" }
-velox-archive-testing       = { path = "velox/archive/testing" }
-velox-archive-types         = { path = "velox/archive/types" }
-velox-auth                  = { path = "velox/exchange/auth" }
-velox-backtrace             = { path = "velox/utils/backtrace" }
-velox-bank                  = { path = "velox/exchange/bank" }
-velox-config-parser         = { path = "velox/utils/config-parser" }
-velox-crypto                = { path = "velox/core/crypto" }
-velox-db-disk               = { path = "velox/core/db/disk" }
-velox-db-memory             = { path = "velox/core/db/memory" }
-velox-disk-saver            = { path = "velox/utils/disk-saver" }
-velox-dyn-event             = { path = "velox/utils/dyn-event" }
-velox-eth-utils             = { path = "velox/utils/eth" }
-velox-ffi                   = { path = "velox/core/ffi" }
-velox-gateway               = { path = "velox/exchange/gateway" }
-velox-genesis               = { path = "velox/exchange/genesis" }
-velox-hyperlane-ism         = { path = "velox/hyperlane/isms/multisig" }
-velox-hyperlane-mailbox     = { path = "velox/hyperlane/mailbox" }
-velox-hyperlane-types       = { path = "velox/hyperlane/types" }
-velox-hyperlane-va          = { path = "velox/hyperlane/va" }
-velox-identity              = { path = "velox/utils/identity" }
-velox-indexer-cache         = { path = "velox/indexer/cache" }
+
+# Laffer packages
+velox-account               = { path = "velox/account" }
+velox-account-factory       = { path = "velox/account-factory" }
+velox-amm                   = { path = "velox/amm" }
+velox-auth                  = { path = "velox/auth" }
+velox-bank                  = { path = "velox/bank" }
+velox-dex                   = { path = "velox/dex" }
+velox-gateway               = { path = "velox/gateway" }
+velox-genesis               = { path = "velox/genesis" }
+velox-graphql-types         = { path = "velox/indexer/graphql-types" }
+velox-httpd                 = { path = "velox/indexer/httpd" }
 velox-indexer-clickhouse    = { path = "velox/indexer/clickhouse" }
-velox-indexer-graphql-types = { path = "velox/indexer/graphql-types" }
-velox-indexer-hooked        = { path = "velox/indexer/hooked" }
-velox-indexer-httpd         = { path = "velox/indexer/httpd", features = ["tracing"] }
-velox-indexer-metrics       = { path = "velox/indexer/metrics" }
 velox-indexer-sql           = { path = "velox/indexer/sql" }
-velox-indexer-stream        = { path = "velox/indexer/stream" }
-velox-jmt                   = { path = "velox/core/jellyfish-merkle" }
-velox-macros                = { path = "velox/core/macros" }
-velox-math                  = { path = "velox/core/math" }
-velox-oracle                = { path = "velox/exchange/oracle" }
-velox-order-book            = { path = "velox/exchange/order-book" }
-velox-perps                 = { path = "velox/exchange/perps" }
-velox-primitives            = { path = "velox/core/types" }
-velox-proposal-preparer     = { path = "velox/exchange/proposal-preparer" }
-velox-pyth-client           = { path = "velox/pyth/client" }
-velox-pyth-types            = { path = "velox/pyth/types" }
-velox-sdk                   = { path = "velox/sdk" }
-velox-storage               = { path = "velox/core/storage" }
-velox-temp-rocksdb          = { path = "velox/utils/temp-rocksdb" }
-velox-tester                = { path = "velox/core/tester" }
+velox-indexer-sql-migration = { path = "velox/indexer/sql-migration" }
+velox-mock-httpd            = { path = "velox/mocks/httpd" }
+velox-oracle                = { path = "velox/oracle" }
+velox-order-book            = { path = "velox/order-book" }
+velox-perps                 = { path = "velox/perps" }
+velox-proposal-preparer     = { path = "velox/proposal-preparer" }
+velox-sdk                   = { path = "sdk/rust" }
+velox-taxman                = { path = "velox/taxman" }
 velox-testing               = { path = "velox/testing" }
-velox-types                 = { path = "velox/exchange/types" }
-velox-upgrade               = { path = "velox/exchange/upgrade" }
-velox-vesting               = { path = "velox/exchange/vesting" }
-velox-vm-hybrid             = { path = "velox/core/vm/hybrid" }
-velox-vm-rust               = { path = "velox/core/vm/rust" }
-velox-vm-wasm               = { path = "velox/core/vm/wasm" }
-velox-warp                  = { path = "velox/exchange/warp" }
+velox-types                 = { path = "velox/types" }
+velox-upgrade               = { path = "velox/upgrade" }
+velox-vesting               = { path = "velox/vesting" }
+velox-warp                  = { path = "velox/warp" }
+bolt                        = { path = "bolt/std" }
+bolt-app                    = { path = "bolt/app" }
+bolt-auth                   = { path = "bolt/auth" }
+bolt-crypto                 = { path = "bolt/crypto" }
+bolt-db-disk                = { path = "bolt/db/disk" }
+bolt-db-memory              = { path = "bolt/db/memory" }
+bolt-ffi                    = { path = "bolt/ffi" }
+bolt-httpd                  = { path = "bolt/httpd" }
+bolt-jmt                    = { path = "bolt/jellyfish-merkle" }
+bolt-macros                 = { path = "bolt/macros" }
+bolt-math                   = { path = "bolt/math" }
+bolt-mock-account           = { path = "bolt/mocks/account" }
+bolt-mock-bank              = { path = "bolt/mocks/bank" }
+bolt-mock-taxman            = { path = "bolt/mocks/taxman" }
+bolt-storage                = { path = "bolt/storage" }
+bolt-tester                 = { path = "bolt/tester" }
+bolt-testing                = { path = "bolt/testing" }
+bolt-types                  = { path = "bolt/types" }
+bolt-vm-hybrid              = { path = "bolt/vm/hybrid" }
+bolt-vm-rust                = { path = "bolt/vm/rust" }
+bolt-vm-wasm                = { path = "bolt/vm/wasm" }
+hyperlane-ism               = { path = "hyperlane/isms/multisig" }
+hyperlane-mailbox           = { path = "hyperlane/mailbox" }
+hyperlane-testing           = { path = "hyperlane/testing" }
+hyperlane-types             = { path = "hyperlane/types" }
+hyperlane-va                = { path = "hyperlane/va" }
+indexer-cache               = { path = "indexer/cache" }
+indexer-disk-saver          = { path = "indexer/disk-saver" }
+indexer-hooked              = { path = "indexer/hooked" }
+indexer-httpd               = { path = "indexer/httpd", features = ["tracing"] }
+indexer-sql                 = { path = "indexer/sql" }
+indexer-sql-migration       = { path = "indexer/sql-migration" }
+indexer-testing             = { path = "indexer/testing" }
+pyth-client                 = { path = "pyth/client" }
+pyth-types                  = { path = "pyth/types" }
+
+# Utilities
+config-parser   = { path = "utils/config-parser" }
+dyn-event       = { path = "utils/dyn-event" }
+error-backtrace = { path = "utils/error-backtrace" }
+eth-utils       = { path = "utils/eth" }
+identity        = { path = "utils/identity" }
+temp-rocksdb    = { path = "utils/temp-rocksdb" }
 
 [profile.release]
 codegen-units    = 1

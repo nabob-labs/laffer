@@ -123,7 +123,7 @@ let (transfers, accounts, perps) = tokio::join!(
 );
 ```
 
-Two sea-orm migration tables are kept side by side in the same database (`grug_seaql_migrations` and `velox_seaql_migrations`) so existing prod data does not need to be migrated.
+Two sea-orm migration tables are kept side by side in the same database (`bolt_seaql_migrations` and `velox_seaql_migrations`) so existing prod data does not need to be migrated.
 
 Extracts:
 

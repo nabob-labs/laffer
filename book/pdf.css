@@ -1,0 +1,37 @@
+@media print {
+    /* --- 之前保留的书签和表格配置 --- */
+    h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
+    h1 { bookmark-level: 1; bookmark-label: content(); }
+    h2 { bookmark-level: 2; bookmark-label: content(); }
+    h3 { bookmark-level: 3; bookmark-label: content(); }
+    .chapter { page-break-before: always; break-before: always; }
+
+    .table-wrapper, table, text, div {
+        overflow: visible !important;
+        max-height: none !important;
+    }
+    table { table-layout: auto !important; width: 100% !important; word-break: break-word !important; white-space: normal !important; }
+
+    /* --- 💡 新增：强力修复首页/章节标题显示不全（顶部截断） --- */
+
+    /* 1. 强制主标题重新向下靠，并防止其上边界溢出 */
+    h1, .content main h1, #content main h1 {
+        margin-top: 40px !important;    /* 强行为标题顶部留出足够的空白间距 */
+        padding-top: 20px !important;
+        position: relative !important;
+        top: 0 !important;
+        line-height: 1.4 !important;    /* 适当放宽行高，防止字体的特殊笔画（如大写字母顶部）被截断 */
+    }
+
+    /* 2. 清除 mdBook 网页端为了页面对齐而可能存在的负外边距 */
+    #content, main, .page-wrapper {
+        margin-top: 0 !important;
+        padding-top: 10px !important;
+        overflow: visible !important;    /* 必须允许内容向外溢出显示，防止裁剪 */
+    }
+
+    /* 3. 彻底隐藏可能干扰打印的网页残留元素（如顶部悬浮导航栏） */
+    .menu-bar, #menu-bar, .nav-chapters, .mobile-nav-chapters {
+        display: none !important;
+    }
+}

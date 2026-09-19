@@ -1,4 +1,4 @@
-# Security Audit Guide
+# Velox Exchange Protocol Guide
 
 This guide documents the architecture of **Velox** -- both the blockchain state machine
 and the smart contract system built on top of it, targeting security auditors with
@@ -21,6 +21,7 @@ blockchain and DeFi experience. It covers:
 | `velox/core/`    | State machine: `app`, `db/disk`, `db/memory`, `vm/rust`, `vm/wasm`, `types`, `storage`, `jellyfish-merkle`, `ffi`, `macros`, `crypto`, `math`, `std`, `testing` |
 | `velox/`         | Smart contracts: `bank`, `account`, `account-factory`, `auth`, `oracle`, `perps`, `gateway`, `vesting`, `warp`, `upgrade`, `types`, `cli`                       |
 | `velox/indexer/` | Indexing: `hooked`, `sql`, `sql-migration`, `cache`, `httpd`, `client`                                                                                          |
+| `ui/`            | TypeScript frontend (out of scope for this guide)                                                                                                               |
 | `deploy/`        | Ansible playbooks (out of scope)                                                                                                                                |
 
 ## Trust model at a glance

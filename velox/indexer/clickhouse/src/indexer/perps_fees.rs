@@ -1,22 +1,30 @@
 use {
-    crate::{context::Context, entities::perps_fees::PerpsFees, error::Result, indexer::Indexer},
-    chrono::{DateTime, Utc},
-    velox_math::{IsZero, Number as _, NumberConst, Sign, Signed, Udec128_6},
-    velox_order_book::{Quantity, UsdPrice, UsdValue},
-    velox_primitives::{
-        Addr, BlockAndBlockOutcomeWithHttpDetails, CommitmentStatus, EventName, EventStatus,
-        EvtCron, FlatCommitmentStatus, FlatEvent, FlatEventInfo, FlatEventStatus, JsonDeExt,
-        NaiveFlatten, SearchEvent,
+    crate::{
+        context::Context,
+        entities::perps_fees::PerpsFees,
+        error::{IndexerError, Result},
+        indexer::Indexer,
     },
+    chrono::{DateTime, Utc},
+    velox_order_book::{Quantity, UsdPrice, UsdValue},
     velox_types::perps::{Deleveraged, FeeDistributed, OrderFilled},
+    bolt::{
+        Addr, BlockAndBlockOutcomeWithHttpDetails, CommitmentStatus, EventName, EventStatus,
+        EvtCron, FlatCommitmentStatus, FlatEvent, FlatEventInfo, FlatEventStatus, IsZero,
+        JsonDeExt, NaiveFlatten, Number as _, NumberConst, SearchEvent, Sign, Signed, Udec128_6,
+    },
 };
 
 impl Indexer {
     pub(crate) async fn store_perps_fees(
         perps_addr: &Addr,
-        block_and_block_outcome: &BlockAndBlockOutcomeWithHttpDetails,
+        ctx: &bolt_app::IndexerContext,
         context: &Context,
     ) -> Result<()> {
+        let block_and_block_outcome = ctx
+            .get::<BlockAndBlockOutcomeWithHttpDetails>()
+            .ok_or(IndexerError::missing_block_or_block_outcome())?;
+
         let block_height = block_and_block_outcome.block.info.height;
         let created_at = DateTime::<Utc>::from_naive_utc_and_offset(
             block_and_block_outcome
@@ -174,7 +182,7 @@ struct FeesAccumulator {
 }
 
 fn process_fee_distributed(
-    contract_event: &velox_primitives::CheckedContractEvent,
+    contract_event: &bolt_types::CheckedContractEvent,
     acc: &mut FeesAccumulator,
     block_height: u64,
 ) {
@@ -188,7 +196,7 @@ fn process_fee_distributed(
                 "Failed to deserialize FeeDistributed event; skipping"
             );
             return;
-        }
+        },
     };
 
     let payer = fee.payer_addr;
@@ -233,7 +241,7 @@ fn process_fee_distributed(
     }
 
     // The contract emits `vault_fee` already net of referral commissions
-    // (see `apply_fee_commissions` in `velox/exchange/perps`), so we store it as-is.
+    // (see `apply_fee_commissions` in `velox/perps`), so we store it as-is.
     // `referee_rebate` and `referrer_payout` are kept as informational
     // breakdowns of the commissions distributed alongside.
     if acc.protocol_fee.checked_add_assign(protocol_fee).is_err()
@@ -267,7 +275,7 @@ fn process_fee_distributed(
 /// positive side to avoid double-counting. Same convention as
 /// `perps_candles/mod.rs::process_order_filled`.
 fn process_order_filled(
-    contract_event: &velox_primitives::CheckedContractEvent,
+    contract_event: &bolt_types::CheckedContractEvent,
     acc: &mut FeesAccumulator,
     #[cfg_attr(not(feature = "tracing"), allow(unused_variables))] block_height: u64,
 ) {
@@ -281,7 +289,7 @@ fn process_order_filled(
                 "Failed to deserialize OrderFilled event; skipping"
             );
             return;
-        }
+        },
     };
 
     if event.fill_size.is_negative() {
@@ -308,7 +316,7 @@ fn process_order_filled(
 /// `Liquidated.adl_size`, so summing both would double-count the ADL
 /// contribution.
 fn process_deleveraged(
-    contract_event: &velox_primitives::CheckedContractEvent,
+    contract_event: &bolt_types::CheckedContractEvent,
     acc: &mut FeesAccumulator,
     #[cfg_attr(not(feature = "tracing"), allow(unused_variables))] block_height: u64,
 ) {
@@ -322,7 +330,7 @@ fn process_deleveraged(
                 "Failed to deserialize Deleveraged event; skipping"
             );
             return;
-        }
+        },
     };
 
     accumulate_volume_usd(
@@ -362,7 +370,7 @@ fn accumulate_volume_usd(
             #[cfg(feature = "metrics")]
             metrics::counter!("indexer.clickhouse.perps_fees.overflow.total").increment(1);
             return;
-        }
+        },
     };
 
     let price_abs = match price
@@ -382,7 +390,7 @@ fn accumulate_volume_usd(
             #[cfg(feature = "metrics")]
             metrics::counter!("indexer.clickhouse.perps_fees.overflow.total").increment(1);
             return;
-        }
+        },
     };
 
     let volume_usd = match size_abs.checked_mul(price_abs) {
@@ -398,7 +406,7 @@ fn accumulate_volume_usd(
             #[cfg(feature = "metrics")]
             metrics::counter!("indexer.clickhouse.perps_fees.overflow.total").increment(1);
             return;
-        }
+        },
     };
 
     if acc.volume_usd.checked_add_assign(volume_usd).is_err() {
@@ -464,10 +472,9 @@ fn to_non_negative(
 mod tests {
     use {
         super::*,
-        std::str::FromStr,
-        velox_math::Uint64,
         velox_order_book::{PairId, Quantity, UsdPrice, UsdValue},
-        velox_primitives::Denom,
+        bolt::{Denom, Uint64},
+        std::str::FromStr,
     };
 
     fn perp_pair() -> PairId {
@@ -489,8 +496,6 @@ mod tests {
             client_order_id: None,
             fill_id: Some(Uint64::new(42)),
             is_maker: Some(false),
-            remaining_order_size: None,
-            remaining_position_size: None,
         }
     }
 
@@ -502,15 +507,11 @@ mod tests {
             fill_price: UsdPrice::new_int(fill_price_int),
             realized_pnl: UsdValue::new_int(0),
             realized_funding: Some(UsdValue::new_int(0)),
-            remaining_position_size: None,
         }
     }
 
-    fn checked_event<T: serde::Serialize>(
-        ty: &str,
-        data: &T,
-    ) -> velox_primitives::CheckedContractEvent {
-        velox_primitives::CheckedContractEvent::new(Addr::mock(0), ty, data).unwrap()
+    fn checked_event<T: serde::Serialize>(ty: &str, data: &T) -> bolt_types::CheckedContractEvent {
+        bolt_types::CheckedContractEvent::new(Addr::mock(0), ty, data).unwrap()
     }
 
     fn expected_volume(size: i128, price: i128) -> Udec128_6 {
@@ -523,7 +524,7 @@ mod tests {
             .unwrap()
             .checked_mul(1_000_000)
             .unwrap();
-        Udec128_6::raw(velox_math::Uint128::new(raw))
+        Udec128_6::raw(bolt::Uint128::new(raw))
     }
 
     /// `OrderFilled` events come in pairs (maker/taker) sharing one
@@ -599,7 +600,7 @@ mod tests {
     #[test]
     fn malformed_event_payload_is_ignored() {
         let mut acc = FeesAccumulator::default();
-        let bogus = velox_primitives::CheckedContractEvent::new(
+        let bogus = bolt_types::CheckedContractEvent::new(
             Addr::mock(0),
             "order_filled",
             serde_json::json!({"not": "an OrderFilled"}),

@@ -1,4 +1,4 @@
 VERSION := "latest"
 
 build:
-  docker buildx build --platform linux/arm64,linux/amd64 --push --tag ghcr.io/nabob-labs/graphiql:{{VERSION}} .
+  docker buildx build --platform linux/arm64,linux/amd64 --push --tag ghcr.io/nabob-labs/laffer/graphiql:{{VERSION}} .

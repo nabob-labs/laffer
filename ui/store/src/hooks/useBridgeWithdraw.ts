@@ -1,0 +1,74 @@
+import { useQuery } from "@tanstack/react-query";
+
+import type { AnyCoin } from "../types/coin.js";
+import type { useBridgeState } from "./useBridgeState.js";
+import { useSubmitTx } from "./useSubmitTx.js";
+import { useSigningClient } from "./useSigningClient.js";
+import { getWithdrawalFee, transferRemote } from "@laffer/velox/actions";
+import { usePublicClient } from "./usePublicClient.js";
+import { useAccount } from "./useAccount.js";
+import { toAddr32 } from "@laffer/velox/hyperlane";
+import { formatUnits, parseUnits } from "@laffer/velox/utils";
+
+export type UseBridgeWithdrawParameters = {
+  coin: AnyCoin;
+  config: ReturnType<typeof useBridgeState>["config"];
+  amount: string;
+  recipient: string;
+  reset: () => void;
+};
+
+export function useBridgeWithdraw(parameters: UseBridgeWithdrawParameters) {
+  const { coin, config, amount, recipient, reset } = parameters;
+  const { data: signingClient } = useSigningClient();
+  const publicClient = usePublicClient();
+  const { account } = useAccount();
+
+  const withdrawFee = useQuery({
+    enabled: !!coin && !!config?.router,
+    queryKey: ["withdrawFee", config],
+    initialData: "0",
+    queryFn: async () => {
+      if (!coin || !config?.router) return "0";
+      const response = await getWithdrawalFee(publicClient, {
+        denom: coin.denom,
+        remote: config.router.remote,
+      });
+
+      if (!response) return "0";
+
+      return formatUnits(response, coin.decimals);
+    },
+  });
+
+  const withdraw = useSubmitTx({
+    mutation: {
+      onSuccess: () => reset(),
+      mutationFn: async () => {
+        if (!signingClient) throw new Error("Signing client not initialized");
+        if (!config || !config.router) throw new Error("Bridge config not available");
+        if (!account) throw new Error("Account not connected");
+        if (!coin) throw new Error("Coin not selected");
+
+        await transferRemote(signingClient, {
+          sender: account.address,
+          recipient: toAddr32(recipient as `0x${string}`),
+          remote: {
+            warp: {
+              domain: config.router.domain,
+              contract: toAddr32(config.router.address),
+            },
+          },
+          funds: {
+            [coin.denom]: parseUnits(amount, coin.decimals),
+          },
+        });
+      },
+    },
+  });
+
+  return {
+    withdraw,
+    withdrawFee,
+  };
+}

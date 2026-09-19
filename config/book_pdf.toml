@@ -1,0 +1,38 @@
+[book]
+authors     = ["Nabobs Labs."]
+description = "Everything about Velox"
+language    = "en"
+src         = "book/"
+title       = "The Velox Book"
+
+[output.html]
+additional-js      = ["book/mermaid-init.js"]
+git-repository-url = "https://github.com/nabob-labs/laffer"
+theme              = "book/theme"
+mathjax-support    = true
+[output.html.print]
+enable = true
+
+# 2. 启用 mdbook-pdf 后端
+[output.pdf]
+output-file-name = "laffer-exchange.pdf"
+page-hover = true
+prefer-css-page-size = true
+print-background = true
+
+[output.pdf.text-to-pdf-options]
+display-header-footer = false
+
+[build]
+build-dir = "target/book/"
+
+[rust]
+edition = "2024"
+
+# This is for Latex support, install with: `cargo install mdbook-katex@0.10.0-alpha`.
+[preprocessor.katex]
+after = ["links"]
+
+# This is for Mermaid diagram support, install with: `cargo install mdbook-mermaid@0.17.0`.
+[preprocessor.mermaid]
+command = "mdbook-mermaid"

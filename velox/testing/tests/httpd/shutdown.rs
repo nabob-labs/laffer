@@ -1,10 +1,10 @@
 use {
     actix_web::{App, HttpResponse, Responder, test, web},
+    bolt_httpd::middlewares::shutdown::ShutdownMiddleware,
     std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    velox_indexer_httpd::middlewares::shutdown::ShutdownMiddleware,
 };
 
 async fn test_handler() -> impl Responder {

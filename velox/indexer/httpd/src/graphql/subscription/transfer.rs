@@ -1,18 +1,17 @@
-#[cfg(feature = "metrics")]
-use {crate::metrics::GaugeGuard, std::sync::Arc};
 use {
-    crate::{
-        graphql::subscription::MAX_PAST_BLOCKS,
-        subscription_limiter::{acquire_subscription, guard_subscription_stream},
-    },
     async_graphql::{futures_util::stream::Stream, *},
+    velox_indexer_sql::entity,
+    velox_types::account_factory::UserIndex,
     futures_util::stream::{StreamExt, once},
+    bolt_httpd::subscription_limiter::{acquire_subscription, guard_subscription_stream},
+    indexer_httpd::graphql::subscription::MAX_PAST_BLOCKS,
+    indexer_sql::entity::blocks::latest_block_height,
     itertools::Itertools,
     sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder},
     std::ops::RangeInclusive,
-    velox_indexer_sql::{entity, entity::blocks::latest_block_height},
-    velox_types::account_factory::UserIndex,
 };
+#[cfg(feature = "metrics")]
+use {bolt_httpd::metrics::GaugeGuard, std::sync::Arc};
 
 #[derive(Default)]
 pub struct TransferSubscription;
@@ -20,7 +19,7 @@ pub struct TransferSubscription;
 impl TransferSubscription {
     /// Get all transfers for the given `block_heights` range.
     async fn get_transfers(
-        app_ctx: &crate::context::FullContext,
+        app_ctx: &crate::context::Context,
         block_heights: RangeInclusive<i64>,
         address: Option<String>,
         user_index: Option<UserIndex>,
@@ -60,10 +59,7 @@ impl TransferSubscription {
             .order_by_asc(entity::transfers::Column::Idx)
             .all(&app_ctx.db)
             .await
-            .inspect_err(|_e| {
-                #[cfg(feature = "tracing")]
-                tracing::error!(%_e, "`get_transfers` error");
-            })
+            .inspect_err(|e| tracing::error!(%e, "`get_transfers` error"))
             .unwrap_or_default();
 
         if transfers.is_empty() {
@@ -89,7 +85,7 @@ impl TransferSubscription {
         Self: Sync,
     {
         let sub_guard = acquire_subscription(ctx)?;
-        let app_ctx = ctx.data::<crate::context::FullContext>()?;
+        let app_ctx = ctx.data::<crate::context::Context>()?;
 
         let latest_block_height = latest_block_height(&app_ctx.db).await?.unwrap_or_default();
 

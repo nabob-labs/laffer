@@ -1,0 +1,102 @@
+import type {
+  Chain,
+  ChainId,
+  Client,
+  Denom,
+  Transport,
+  UID,
+  Username,
+  UserStatus,
+} from "@laffer/velox/types";
+
+import type { NativeCoin } from "./coin.js";
+import type { Connection, Connector, ConnectorEvents, CreateConnectorFn } from "./connector.js";
+import type { MipdStore } from "./mipd.js";
+import type { Storage } from "./storage.js";
+import type { SubscriptionStore } from "./subscriptions.js";
+import type { CoinStore } from "../stores/coinStore.js";
+
+export const ConnectionStatus = {
+  Connected: "connected",
+  Connecting: "connecting",
+  Disconnected: "disconnected",
+  Reconnecting: "reconnecting",
+} as const;
+
+export type ConnectionStatusType = (typeof ConnectionStatus)[keyof typeof ConnectionStatus];
+
+export type StoreUser = {
+  index: number;
+  username: Username;
+  status: UserStatus | undefined;
+};
+
+export type State = {
+  chainId: ChainId;
+  isMipdLoaded: boolean;
+  current: UID | null;
+  user: StoreUser | undefined;
+  connectors: Map<UID, Connection>;
+  status: ConnectionStatusType;
+};
+
+export type Config<transport extends Transport = Transport> = {
+  readonly chain: Chain;
+  readonly coins: CoinStore;
+  readonly connectors: readonly Connector[];
+  readonly storage: Storage;
+  readonly state: State;
+  readonly subscriptions: SubscriptionStore;
+  setState(value: State | ((state: State) => State)): void;
+  subscribe<state>(
+    selector: (state: State) => state,
+    listener: (state: state, previousState: state) => void,
+    options?: {
+      emitImmediately?: boolean;
+      equalityFn?: (a: state, b: state) => boolean;
+    },
+  ): () => void;
+  getClient(): Client<transport>;
+  captureError(error: unknown): void;
+  _internal: Internal<transport>;
+};
+export type CreateConfigParameters<transport extends Transport = Transport> = {
+  version?: number;
+  chain: Chain;
+  coins: Record<Denom, NativeCoin>;
+  transport: transport;
+  ssr?: boolean;
+  batch?: boolean;
+  storage?: Storage;
+  multiInjectedProviderDiscovery?: boolean;
+  connectors?: CreateConnectorFn[];
+  onError?: (error: unknown) => void;
+};
+
+export type ConfigParameter<config extends Config = Config> = {
+  config?: Config | config;
+};
+
+export type StoreApi = {
+  setState: (partial: State | Partial<State>, replace?: boolean) => void;
+  getState: () => State;
+  getInitialState: () => State;
+  subscribe: (listener: (state: State, prevState: State) => void) => () => void;
+  persist: {
+    rehydrate: () => Promise<void> | void;
+    hasHydrated: () => boolean;
+  };
+};
+
+type Internal<transport extends Transport = Transport> = {
+  readonly ssr: boolean;
+  readonly mipd: MipdStore | undefined;
+  readonly store: StoreApi;
+  readonly transport: transport;
+  readonly events: ConnectorEvents;
+  connectors: {
+    setup: (connectorFn: CreateConnectorFn) => Connector;
+    setState(value: Connector[] | ((state: Connector[]) => Connector[])): void;
+    subscribe(listener: (state: Connector[], prevState: Connector[]) => void): () => void;
+  };
+};

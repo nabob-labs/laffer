@@ -14,16 +14,6 @@ git-fetch-main:
 git-clear-branches:
   git branch | grep -v "main" | xargs git branch -D
 
-# Create a tag at the given commit and push only that tag to origin
-create-and-push-tag commit-hash tag:
-  git tag {{tag}} {{commit-hash}}
-  git push origin {{tag}}
-
-# Create a branch off the given commit and push only that branch to origin
-create-and-push-branch commit-hash branch:
-  git branch {{branch}} {{commit-hash}}
-  git push origin {{branch}}
-
 # ------------------------------------ Rust ------------------------------------
 
 # Compile and install the Velox node software
@@ -32,22 +22,29 @@ install-node:
 
 # Compile and install the Velox client CLI
 install-client:
-  cargo install --path velox/sdk/cli --locked
+  cargo install --path sdk/rust/cli --locked
 
 # Run all tests
 test:
-  RUST_BACKTRACE=1 cargo test --all-features --tests -- --nocapture
+  RUST_BACKTRACE=1 cargo test --all-features -- --nocapture
 
-# Run all perp-related tests specifically
-test-perps:
-  RUST_BACKTRACE=1 cargo test --all-features --tests -p velox-types perps::tests -- --nocapture
-  RUST_BACKTRACE=1 cargo test --all-features --tests -p velox-order-book -- --nocapture
-  RUST_BACKTRACE=1 cargo test --all-features --tests -p velox-perps -- --nocapture
-  RUST_BACKTRACE=1 cargo test --all-features -p velox-testing --test perps -- --nocapture
+# Run bolt tests
+test-bolt:
+  RUST_BACKTRACE=1 cargo test --all-features -p bolt-testing -- --nocapture
 
-# Run all velox-related tests specifically
+# Run velox tests
 test-velox:
   RUST_BACKTRACE=1 cargo test --all-features -p velox-testing -- --nocapture
+
+# Run velox perp tests
+test-perps:
+  RUST_BACKTRACE=1 cargo test --all-features -p velox-types perps::tests -- --nocapture
+  RUST_BACKTRACE=1 cargo test --all-features -p velox-perps -- --nocapture
+  RUST_BACKTRACE=1 cargo test --all-features -p velox-testing --test perps -- --nocapture
+
+# Run indexer tests
+test-indexer:
+  RUST_BACKTRACE=1 cargo test --all-features -p indexer-testing -- --nocapture
 
 # Check whether the code compiles
 check:
@@ -71,29 +68,33 @@ lint-without-features:
 
 # Perform formatting
 fmt:
-  cargo fmt --all
+  cargo +nightly fmt --all
 
 # Build schema
 build-graphql-schema:
-  cargo run -p velox-indexer-httpd --bin build_graphql_schema -- \
+  cargo run -p velox-httpd build_graphql_schema -- \
     ./velox/indexer/graphql-types/src/schemas/schema.graphql
 
-# Build the velox Book
+# Build the Velox Book
 book:
   mdbook build --open
 
 # Update wasm artifacts used in tests
 update-testdata:
-  cp -v artifacts/velox_tester.wasm velox/core/vm/wasm/testdata/
+  cp -v artifacts/bolt_{mock_*,tester}.wasm bolt/vm/wasm/testdata/
 
-# --------------------------------- Optimizer ----------------------------------
+# ---------------------------------- Frontend ----------------------------------
 
-OPTIMIZER_NAME := "nabob-labs/bob-arm64"
-OPTIMIZER_VERSION := "0.2.0"
+run-website:
+  pnpm i
+  pnpm dev:portal-web
 
-# Compile and optimize contracts
-optimize:
-  docker run --rm -v "$(pwd)":/code \
-    --mount type=volume,source="$(basename "$(pwd)")_cache",target=/target \
-    --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-    {{OPTIMIZER_NAME}}:{{OPTIMIZER_VERSION}}
+# ----------------------------------- Debug ------------------------------------
+
+check-candles:
+  INDEXER__CLICKHOUSE__URL="http://localhost:8123" \
+    INDEXER__DATABASE__URL=postgres://postgres@localhost:5432/bolt_dev \
+    INDEXER__CLICKHOUSE__DATABASE=testnet_velox_production \
+    INDEXER__CLICKHOUSE__PASSWORD=${CLICKHOUSE_PASSWORD} \
+    RUST_LOG=info \
+    cargo run -p velox-cli indexer --home localvelox/configs/velox/ check-candles

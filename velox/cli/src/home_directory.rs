@@ -50,7 +50,7 @@ impl HomeDirectory {
         self.config_dir().join("app.toml")
     }
 
-    /// Return the path to Velox's RocksDB database directory.
+    /// Return the path to Bolt's RocksDB database directory.
     pub fn data_dir(&self) -> PathBuf {
         self.home.join("data")
     }

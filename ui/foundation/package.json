@@ -1,0 +1,68 @@
+{
+  "name": "@laffer/foundation",
+  "version": "0.1.0",
+  "main": "./build/index.cjs",
+  "module": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "typings": "./build/index.d.ts",
+  "type": "module",
+  "exports": {
+    "./fonts/*": "./fonts/*",
+    "./images/*": "./images/*",
+    "./tailwind/*": "./tailwind/*",
+    "./messages/*": "./messages/*",
+    "./inlang/*": "./project.inlang/*",
+    "./paraglide/*": "./paraglide/*",
+    "./coins": "./coins.ts",
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js",
+      "default": "./build/index.cjs"
+    }
+  },
+  "scripts": {
+    "inlang": "inlang",
+    "machine-translate": "inlang machine translate --force --project ./project.inlang",
+    "ci": "pnpm lint",
+    "lint": "pnpm biome check --write ./src",
+    "lint:fix": "pnpm biome ci ./src",
+    "clean": "rm -rf ./build && rm -rf node_modules && rm -rf tsconfig.tsbuildinfo",
+    "clean:build": "rm -rf ./build",
+    "pre-dev": "npx tsx paraglide.ts && tsc",
+    "dev": "concurrently \"nodemon\" \"tsc -w\"",
+    "build": "npx tsx paraglide.ts && pnpm tsup --clean"
+  },
+  "dependencies": {
+    "@inlang/cli": "^3.0.3",
+    "@inlang/paraglide-js": "^2.2.0",
+    "@laffer/store": "workspace:^",
+    "@laffer/velox": "workspace:^",
+    "clsx": "^2.1.1",
+    "concurrently": "^9.2.1",
+    "date-fns-tz": "^3.2.0",
+    "html-to-image": "^1.11.13",
+    "tailwind-merge": "^3.6.0",
+    "tailwind-scrollbar": "^3.1.0",
+    "tailwind-variants": "catalog:",
+    "tailwindcss": "catalog:",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@laffer/config": "workspace:^",
+    "@types/date-fns": "catalog:",
+    "@types/react": "catalog:",
+    "date-fns": "catalog:",
+    "nodemon": "^3.1.10",
+    "react": "catalog:"
+  },
+  "peerDependencies": {
+    "date-fns": ">=4.0.0",
+    "react": "^18 || ^19"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "messages"
+    ],
+    "exec": "node paraglide.ts"
+  }
+}

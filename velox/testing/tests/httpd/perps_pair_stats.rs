@@ -1,24 +1,26 @@
 use {
-    graphql_client::GraphQLQuery,
-    velox_app::Indexer,
-    velox_indexer_graphql_types::{
+    crate::call_graphql_query,
+    velox_graphql_types::{
         AllPerpsPairStats, PerpsPairStats, PerpsPairStatsPartial, all_perps_pair_stats,
         perps_pair_stats, perps_pair_stats_partial,
     },
     velox_testing::{
-        TestOption, call_graphql_query_with_context, create_perps_fill, pair_id, setup_perps_env,
-        setup_test_naive_with_indexer,
+        TestOption,
+        perps::{create_perps_fill, pair_id, setup_perps_env},
+        setup_test_with_indexer,
     },
+    graphql_client::GraphQLQuery,
+    bolt_app::Indexer,
 };
 
 #[tokio::test(flavor = "multi_thread")]
 async fn query_perps_pair_stats() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, contracts, _, velox_httpd_context, _, _, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default().with_recent_genesis()).await;
+    let (mut suite, mut accounts, _, contracts, _, _, velox_httpd_context, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
 
     let pair = pair_id();
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair, 2_000, 5).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair, 2_000, 5);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -27,14 +29,13 @@ async fn query_perps_pair_stats() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response =
-                    call_graphql_query_with_context::<_, perps_pair_stats::ResponseData>(
-                        velox_httpd_context.clone(),
-                        PerpsPairStats::build_query(perps_pair_stats::Variables {
-                            pair_id: pair.to_string(),
-                        }),
-                    )
-                    .await?;
+                let response = call_graphql_query::<_, perps_pair_stats::ResponseData>(
+                    velox_httpd_context.clone(),
+                    PerpsPairStats::build_query(perps_pair_stats::Variables {
+                        pair_id: pair.to_string(),
+                    }),
+                )
+                .await?;
 
                 let data = response
                     .data
@@ -71,8 +72,8 @@ async fn query_perps_pair_stats() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn query_perps_pair_stats_nonexistent_pair() -> anyhow::Result<()> {
-    let (suite, _, _, _, _, velox_httpd_context, _, _, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default().with_recent_genesis()).await;
+    let (suite, _, _, _, _, _, velox_httpd_context, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -81,14 +82,13 @@ async fn query_perps_pair_stats_nonexistent_pair() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response =
-                    call_graphql_query_with_context::<_, perps_pair_stats_partial::ResponseData>(
-                        velox_httpd_context.clone(),
-                        PerpsPairStatsPartial::build_query(perps_pair_stats_partial::Variables {
-                            pair_id: "perp/nonexistent".to_string(),
-                        }),
-                    )
-                    .await?;
+                let response = call_graphql_query::<_, perps_pair_stats_partial::ResponseData>(
+                    velox_httpd_context.clone(),
+                    PerpsPairStatsPartial::build_query(perps_pair_stats_partial::Variables {
+                        pair_id: "perp/nonexistent".to_string(),
+                    }),
+                )
+                .await?;
 
                 let data = response
                     .data
@@ -109,12 +109,12 @@ async fn query_perps_pair_stats_nonexistent_pair() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn query_all_perps_pair_stats() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, contracts, _, velox_httpd_context, _, _, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default().with_recent_genesis()).await;
+    let (mut suite, mut accounts, _, contracts, _, _, velox_httpd_context, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
 
     let pair = pair_id();
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair, 2_000, 5).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair, 2_000, 5);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -123,12 +123,11 @@ async fn query_all_perps_pair_stats() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response =
-                    call_graphql_query_with_context::<_, all_perps_pair_stats::ResponseData>(
-                        velox_httpd_context.clone(),
-                        AllPerpsPairStats::build_query(all_perps_pair_stats::Variables),
-                    )
-                    .await?;
+                let response = call_graphql_query::<_, all_perps_pair_stats::ResponseData>(
+                    velox_httpd_context.clone(),
+                    AllPerpsPairStats::build_query(all_perps_pair_stats::Variables),
+                )
+                .await?;
 
                 let data = response
                     .data
@@ -161,12 +160,12 @@ async fn query_all_perps_pair_stats() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn query_perps_pair_stats_partial_fields() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, contracts, _, velox_httpd_context, _, _, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default().with_recent_genesis()).await;
+    let (mut suite, mut accounts, _, contracts, _, _, velox_httpd_context, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
 
     let pair = pair_id();
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair, 2_000, 5).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair, 2_000, 5);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -175,14 +174,13 @@ async fn query_perps_pair_stats_partial_fields() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response =
-                    call_graphql_query_with_context::<_, perps_pair_stats_partial::ResponseData>(
-                        velox_httpd_context.clone(),
-                        PerpsPairStatsPartial::build_query(perps_pair_stats_partial::Variables {
-                            pair_id: pair.to_string(),
-                        }),
-                    )
-                    .await?;
+                let response = call_graphql_query::<_, perps_pair_stats_partial::ResponseData>(
+                    velox_httpd_context.clone(),
+                    PerpsPairStatsPartial::build_query(perps_pair_stats_partial::Variables {
+                        pair_id: pair.to_string(),
+                    }),
+                )
+                .await?;
 
                 let data = response
                     .data

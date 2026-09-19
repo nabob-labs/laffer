@@ -1,13 +1,12 @@
 use {
-    crate::{
-        context::FullContext,
+    async_graphql::{types::connection::*, *},
+    velox_indexer_sql::entity,
+    indexer_httpd::{
+        context::Context,
         graphql::query::pagination::{CursorFilter, CursorOrder, Reversible, paginate_models},
     },
-    async_graphql::{types::connection::*, *},
-    chrono::{DateTime, Utc},
     sea_orm::{ColumnTrait, Condition, Order, QueryFilter, QueryOrder, Select},
     serde::{Deserialize, Serialize},
-    velox_indexer_sql::entity,
 };
 
 #[derive(Enum, Copy, Clone, Eq, PartialEq, Debug, Default)]
@@ -69,12 +68,6 @@ impl PerpsEventQuery {
         #[graphql(desc = "Filter by event type")] event_type: Option<String>,
         #[graphql(desc = "Filter by trading pair ID")] pair_id: Option<String>,
         #[graphql(desc = "Filter by block height")] block_height: Option<u64>,
-        #[graphql(desc = "Filter events created at or before this date")] earlier_than: Option<
-            DateTime<Utc>,
-        >,
-        #[graphql(desc = "Filter events created at or after this date")] later_than: Option<
-            DateTime<Utc>,
-        >,
     ) -> Result<
         Connection<
             OpaqueCursor<PerpsEventCursor>,
@@ -83,7 +76,7 @@ impl PerpsEventQuery {
             EmptyFields,
         >,
     > {
-        let app_ctx = ctx.data::<FullContext>()?;
+        let app_ctx = ctx.data::<Context>()?;
 
         paginate_models(
             app_ctx,
@@ -113,18 +106,6 @@ impl PerpsEventQuery {
                     if let Some(block_height) = block_height {
                         query = query.filter(
                             entity::perps_events::Column::BlockHeight.eq(block_height as i64),
-                        );
-                    }
-
-                    if let Some(earlier_than) = earlier_than {
-                        query = query.filter(
-                            entity::perps_events::Column::CreatedAt.lte(earlier_than.naive_utc()),
-                        );
-                    }
-
-                    if let Some(later_than) = later_than {
-                        query = query.filter(
-                            entity::perps_events::Column::CreatedAt.gte(later_than.naive_utc()),
                         );
                     }
 

@@ -9,8 +9,9 @@ use {
     crate::{db::DbCmd, home_directory::HomeDirectory, indexer::IndexerCmd, start::StartCmd},
     clap::{CommandFactory, FromArgMatches, Parser},
     config::Config,
+    config_parser::parse_config,
     opentelemetry::{KeyValue, trace::TracerProvider},
-    opentelemetry_otlp::{Protocol, SpanExporter, WithExportConfig},
+    opentelemetry_otlp::{ExportConfig, Protocol, SpanExporter, WithExportConfig},
     opentelemetry_sdk::{Resource, trace as sdktrace},
     sentry::integrations::tracing::layer as sentry_layer,
     std::{
@@ -19,16 +20,10 @@ use {
     },
     tracing_opentelemetry::layer as otel_layer,
     tracing_subscriber::{fmt::format::FmtSpan, prelude::*},
-    velox_config_parser::parse_config,
 };
 
-static VERSION_WITH_COMMIT: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "{} ({})",
-        env!("CARGO_PKG_VERSION"),
-        velox_primitives::GIT_COMMIT
-    )
-});
+static VERSION_WITH_COMMIT: LazyLock<String> =
+    LazyLock::new(|| format!("{} ({})", env!("CARGO_PKG_VERSION"), bolt_types::GIT_COMMIT));
 
 #[derive(Parser)]
 #[command(author, about, next_display_order = None)]
@@ -135,16 +130,28 @@ async fn main() -> anyhow::Result<()> {
         // Build exporter and tracer provider
         // Build exporter via selected OTLP protocol (gRPC or HTTP).
         let exporter = match cfg.trace.protocol {
-            config::TraceProtocol::OtlpGrpc => SpanExporter::builder()
-                .with_tonic()
-                .with_endpoint(cfg.trace.endpoint.clone())
-                .with_protocol(Protocol::Grpc)
-                .build()?,
-            config::TraceProtocol::OtlpHttp => SpanExporter::builder()
-                .with_http()
-                .with_endpoint(cfg.trace.endpoint.clone())
-                .with_protocol(Protocol::HttpBinary)
-                .build()?,
+            config::TraceProtocol::OtlpGrpc => {
+                let export_config = ExportConfig {
+                    endpoint: Some(cfg.trace.endpoint.clone()),
+                    protocol: Protocol::Grpc,
+                    ..Default::default()
+                };
+                SpanExporter::builder()
+                    .with_tonic()
+                    .with_export_config(export_config)
+                    .build()?
+            },
+            config::TraceProtocol::OtlpHttp => {
+                let export_config = ExportConfig {
+                    endpoint: Some(cfg.trace.endpoint.clone()),
+                    protocol: Protocol::HttpBinary,
+                    ..Default::default()
+                };
+                SpanExporter::builder()
+                    .with_http()
+                    .with_export_config(export_config)
+                    .build()?
+            },
         };
 
         let provider = sdktrace::SdkTracerProvider::builder()
@@ -162,24 +169,21 @@ async fn main() -> anyhow::Result<()> {
 
     let mut _sentry_guard: Option<sentry::ClientInitGuard> = None;
     let sentry_layer = if cfg.sentry.enabled {
-        let guard = sentry::init((
-            cfg.sentry.dsn,
-            sentry::ClientOptions {
-                environment: Some(cfg.sentry.environment.clone().into()),
-                release: sentry::release_name!(),
-                enable_logs: cfg.sentry.enable_logs,
-                sample_rate: cfg.sentry.sample_rate,
-                traces_sample_rate: cfg.sentry.traces_sample_rate,
-                // Drop noisy exporter transport errors that surface as trace logs.
-                before_send: Some(Arc::new(|event| {
-                    if event.logger.as_deref() == Some("opentelemetry_sdk") {
-                        return None;
-                    }
-                    Some(event)
-                })),
-                ..Default::default()
-            },
-        ));
+        let guard = sentry::init((cfg.sentry.dsn, sentry::ClientOptions {
+            environment: Some(cfg.sentry.environment.clone().into()),
+            release: sentry::release_name!(),
+            enable_logs: cfg.sentry.enable_logs,
+            sample_rate: cfg.sentry.sample_rate,
+            traces_sample_rate: cfg.sentry.traces_sample_rate,
+            // Drop noisy exporter transport errors that surface as trace logs.
+            before_send: Some(Arc::new(|event| {
+                if event.logger.as_deref() == Some("opentelemetry_sdk") {
+                    return None;
+                }
+                Some(event)
+            })),
+            ..Default::default()
+        }));
         _sentry_guard = Some(guard);
 
         sentry::configure_scope(|scope| {

@@ -1,0 +1,81 @@
+use {
+    crate::setup::create_hooked_indexer,
+    bolt_app::{Indexer, NaiveProposalPreparer},
+    bolt_db_memory::MemDb,
+    bolt_httpd::traits::QueryApp,
+    bolt_testing::{MockClient, TestAccounts, TestBuilder},
+    bolt_types::{BroadcastClientExt, Coins, Denom},
+    bolt_vm_rust::RustVm,
+    indexer_hooked::HookedIndexer,
+    indexer_httpd::context::Context,
+    std::{str::FromStr, sync::Arc},
+    tokio::sync::RwLock,
+};
+
+pub async fn create_block() -> anyhow::Result<(
+    Context,
+    Arc<MockClient<MemDb, RustVm, NaiveProposalPreparer, HookedIndexer>>,
+    TestAccounts,
+)> {
+    create_blocks(1).await
+}
+
+pub async fn create_blocks(
+    count: usize,
+) -> anyhow::Result<(
+    Context,
+    Arc<MockClient<MemDb, RustVm, NaiveProposalPreparer, HookedIndexer>>,
+    TestAccounts,
+)> {
+    let denom = Denom::from_str("ubolt")?;
+
+    let (indexer, sql_indexer_context, indexer_cache_context) = create_hooked_indexer().await;
+
+    let (suite, mut accounts) = TestBuilder::new_with_indexer(indexer)
+        .add_account("owner", Coins::new())
+        .add_account("sender", Coins::one(denom.clone(), 30_000)?)
+        .set_owner("owner")
+        .build();
+
+    let chain_id = suite.app.chain_id().await?;
+
+    let suite = Arc::new(RwLock::new(suite));
+
+    let mock_client =
+        MockClient::new_shared(suite.clone(), bolt_testing::BlockCreation::OnBroadcast);
+
+    let sender = accounts["sender"].address;
+
+    for _ in 0..count {
+        mock_client
+            .send_message(
+                &mut accounts["sender"],
+                bolt_types::Message::transfer(sender, Coins::one(denom.clone(), 2_000)?)?,
+                bolt_types::GasOption::Predefined { gas_limit: 2000 },
+                &chain_id,
+            )
+            .await?;
+    }
+
+    suite
+        .read()
+        .await
+        .app
+        .indexer
+        .wait_for_finish()
+        .await
+        .expect("Can't wait for indexer to finish");
+
+    let client = Arc::new(mock_client);
+
+    let suite_guard = suite.read().await;
+    let httpd_app = suite_guard.app.clone_without_indexer();
+    let httpd_context = Context::new(
+        indexer_cache_context,
+        sql_indexer_context,
+        Arc::new(httpd_app),
+        client.clone(),
+    );
+
+    Ok((httpd_context, client, accounts))
+}

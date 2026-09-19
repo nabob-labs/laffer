@@ -17,17 +17,6 @@ use {
     strum::IntoEnumIterator,
 };
 
-/// Returns the earliest current-bucket start across all `CandleInterval`
-/// variants at `now`. Used as the lower bound for the startup rebuild
-/// of in-progress candles: any pair_price before this timestamp cannot
-/// contribute to any interval's current bucket.
-pub fn earliest_current_bucket_start(now: DateTime<Utc>) -> DateTime<Utc> {
-    CandleInterval::iter()
-        .map(|interval| interval.interval_start(now))
-        .min()
-        .expect("CandleInterval has at least one variant")
-}
-
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct PerpsCandleCacheKey {
     pub pair_id: String,
@@ -391,11 +380,11 @@ impl PerpsCandleCache {
             match result {
                 Ok((key, candles)) => {
                     *self.candles.entry(key).or_default() = candles;
-                }
+                },
                 Err(_err) => {
                     #[cfg(feature = "tracing")]
                     tracing::error!(err = %_err, "Failed to preload perps candles");
-                }
+                },
             }
         }
 
@@ -411,7 +400,7 @@ impl PerpsCandleCache {
         // replaying, so a per-pair loop would have each iteration overwrite
         // the rebuild produced by the previous iteration.
         let now = Utc::now();
-        let earliest_start = earliest_current_bucket_start(now);
+        let earliest_start = crate::indexer::candles::cache::earliest_current_bucket_start(now);
 
         let replay_tasks = pair_ids.iter().map(|pair_id| {
             let pair_id = pair_id.clone();
@@ -428,7 +417,7 @@ impl PerpsCandleCache {
                         err = %_err,
                         "Failed to fetch perps pair_prices for in-progress candle rebuild",
                     );
-                }
+                },
             }
         }
 
@@ -547,9 +536,9 @@ mod tests {
         super::*,
         assertor::*,
         chrono::NaiveDateTime,
+        bolt::{NumberConst, Udec128_6},
         itertools::Itertools,
         std::{collections::VecDeque, str::FromStr},
-        velox_math::{NumberConst, Udec128_6},
     };
 
     fn parse_timestamp(s: &str) -> crate::error::Result<DateTime<Utc>> {
@@ -569,11 +558,11 @@ mod tests {
     ) -> crate::error::Result<PerpsPairPrice> {
         Ok(PerpsPairPrice {
             pair_id: pair_id.to_string(),
-            high: Udec128_6::raw(velox_math::Int::new(high)),
-            low: Udec128_6::raw(velox_math::Int::new(low)),
-            close: Udec128_6::raw(velox_math::Int::new(close)),
-            volume: Udec128_6::raw(velox_math::Int::new(volume)),
-            volume_usd: Udec128_6::raw(velox_math::Int::new(volume_usd)),
+            high: Udec128_6::raw(bolt::Int::new(high)),
+            low: Udec128_6::raw(bolt::Int::new(low)),
+            close: Udec128_6::raw(bolt::Int::new(close)),
+            volume: Udec128_6::raw(bolt::Int::new(volume)),
+            volume_usd: Udec128_6::raw(bolt::Int::new(volume_usd)),
             created_at: NaiveDateTime::parse_from_str(created_at, "%Y-%m-%d %H:%M:%S%.f")?
                 .and_utc(),
             block_height,

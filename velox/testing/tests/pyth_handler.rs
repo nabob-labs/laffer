@@ -1,18 +1,18 @@
 use {
-    std::{thread::sleep, time::Duration},
-    velox_primitives::{Coins, HashExt, NonEmpty, QuerierWrapper, ResultExt, btree_map},
     velox_proposal_preparer::{PythHandler, QueryPythId},
-    velox_pyth_client::PythClientTrait,
-    velox_pyth_types::{Channel, constants::LAZER_ENDPOINTS_TEST},
     velox_testing::setup_test,
     velox_types::{
-        constants::perp_btc,
-        oracle::{ExecuteMsg, InstantiateMsg, PriceConfig, PriceSource},
+        constants::btc,
+        oracle::{ExecuteMsg, InstantiateMsg, PriceSource},
     },
+    bolt::{Coins, HashExt, NonEmpty, QuerierWrapper, ResultExt, btree_map},
+    pyth_client::PythClientTrait,
+    pyth_types::{Channel, constants::LAZER_ENDPOINTS_TEST},
+    std::{thread::sleep, time::Duration},
 };
 
-#[tokio::test]
-async fn handler() {
+#[test]
+fn handler() {
     let (mut suite, mut accounts, codes, contracts, _) = setup_test(Default::default());
 
     // Oracle from the setup_test has some PythIds already uploaded.
@@ -33,15 +33,15 @@ async fn handler() {
             None,
             Coins::new(),
         )
-        .await
         .should_succeed()
         .address;
 
     let price_source = btree_map!(
-        perp_btc::DENOM.clone() => PriceConfig::Single(PriceSource {
+        btc::DENOM.clone() => PriceSource::Pyth {
             id: 1,
+            precision: 8,
             channel: Channel::RealTime,
-        }),
+        },
     );
 
     suite
@@ -51,7 +51,6 @@ async fn handler() {
             &ExecuteMsg::RegisterPriceSources(price_source),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let querier = QuerierWrapper::new(&suite);

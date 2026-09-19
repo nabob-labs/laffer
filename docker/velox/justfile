@@ -2,4 +2,4 @@ VERSION := "0.0.0-alpha.8"
 
 # TODO: allow specifying version, platform, and build args via CLI arguments.
 build:
-  docker buildx build --load --tag leftcurve/velox:{{VERSION}} .
+  docker buildx build --load --tag nabob-labs/laffer/velox:{{VERSION}} .

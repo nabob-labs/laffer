@@ -1,0 +1,32 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "bolt-mock-taxman"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# If enabled, Wasm exports won't be created. This allows this contract to be
+# imported into other contracts as a library.
+library = []
+
+# Note: Contracts that are used in the testing suite (bolt-testing) can't use
+# the `bolt` meta-crate, to avoid circular dependency:
+# > bolt-account --> bolt-testing --> bolt
+# Instead, they have to use Bolt crates (types, storage, ffi) individually.
+[dependencies]
+anyhow         = { workspace = true }
+borsh          = { workspace = true, features = ["de_strict_order", "derive"] }
+bolt-ffi       = { workspace = true }
+bolt-math      = { workspace = true }
+bolt-mock-bank = { workspace = true, features = ["library"] }
+bolt-storage   = { workspace = true }
+bolt-types     = { workspace = true }
+serde          = { workspace = true, features = ["derive"] }

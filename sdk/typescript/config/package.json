@@ -1,0 +1,14 @@
+{
+  "name": "@laffer/config",
+  "version": "0.1.0",
+  "files": [
+    "ts",
+    "biome",
+    "tsup",
+    "typedoc"
+  ],
+  "license": "Apache-2.0 license",
+  "homepage": "https://github.com/nabob-labs/laffer",
+  "repository": "https://github.com/nabob-labs/laffer",
+  "keywords": ["bolt", "smart-contracts", "blockchain", "cryptocurrency", "web3", "typescript"]
+}

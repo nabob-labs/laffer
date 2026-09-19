@@ -460,8 +460,8 @@ same block height, upgrade, and resume together.
      "upgrade": {
        "height": 12345,
        "cargo_version": "1.2.3",
-       "git_tag": "v1.2.3",
-       "url": "https://github.com/nabob-labs/laffer/releases/v1.2.3"
+       "git_tag": "v1.0.0",
+       "url": "https://github.com/nabob-labs/laffer/releases/v1.0.0"
      }
    }
    ```

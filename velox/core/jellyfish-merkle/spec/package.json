@@ -1,7 +1,0 @@
-{
-  "name": "@nabob-labs/jellyfish-merkle-spec",
-  "private": true,
-  "devDependencies": {
-    "@informalsystems/quint": "0.30.0"
-  }
-}

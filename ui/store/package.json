@@ -1,0 +1,80 @@
+{
+  "name": "@laffer/store",
+  "version": "0.1.1",
+  "type": "module",
+  "scripts": {
+    "bump": "npm version --no-git-tag-version",
+    "ci": "pnpm lint",
+    "clean": "rm -rf ./build && rm -rf node_modules && rm -rf tsconfig.tsbuildinfo",
+    "clean:build": "rm -rf ./build",
+    "lint": "pnpm biome check --write src",
+    "lint:fix": "pnpm biome ci ./src",
+    "pre-dev": "tsc",
+    "dev": "tsc -w",
+    "build": "pnpm tsup --clean"
+  },
+  "main": "./build/index.cjs",
+  "module": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "build"
+  ],
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js",
+      "default": "./build/index.cjs"
+    },
+    "./types": {
+      "types": "./build/types/index.d.ts",
+      "import": "./build/types/index.js",
+      "default": "./build/types/index.cjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "types": [
+        "./build/types/index.d.ts"
+      ]
+    }
+  },
+  "dependencies": {
+    "@laffer/velox": "workspace:^",
+    "@privy-io/js-sdk-core": "^0.56.3",
+    "eventemitter3": "catalog:",
+    "fuzzysort": "^3.1.0",
+    "use-sync-external-store": "^1.2.2",
+    "viem": "^2.39.0",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@laffer/config": "workspace:^",
+    "@tanstack/query-core": "^5.56.2",
+    "@tanstack/react-query": "catalog:",
+    "@types/react": "catalog:",
+    "@types/use-sync-external-store": "^0.0.6",
+    "react": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/query-core": ">=5.0.0",
+    "@tanstack/react-query": ">=5.0.0",
+    "react": "^18 || ^19"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/query-core": {
+      "optional": true
+    }
+  },
+  "license": "Apache-2.0 license",
+  "homepage": "https://github.com/nabob-labs/laffer",
+  "repository": "https://github.com/nabob-labs/laffer",
+  "keywords": [
+    "bolt",
+    "smart-contracts",
+    "blockchain",
+    "cryptocurrency",
+    "web3",
+    "typescript"
+  ]
+}

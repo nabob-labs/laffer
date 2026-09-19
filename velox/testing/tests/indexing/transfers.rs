@@ -1,15 +1,15 @@
 use {
     assertor::*,
-    sea_orm::{ColumnTrait, EntityTrait, QueryFilter},
-    velox_app::Indexer,
-    velox_primitives::{Addressable, Coins, Message, NonEmpty, ResultExt},
     velox_testing::{TestOption, setup_test_with_indexer},
     velox_types::{account_factory, constants::usdc},
+    bolt::{Addressable, Coins, Message, NonEmpty, ResultExt},
+    bolt_app::Indexer,
+    sea_orm::{ColumnTrait, EntityTrait, QueryFilter},
 };
 
 #[tokio::test(flavor = "multi_thread")]
 async fn index_transfer_events() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, contracts, _, velox_context, _, _, _db_guard) =
+    let (mut suite, mut accounts, _, contracts, _, _, velox_context, _, _db_guard) =
         setup_test_with_indexer(TestOption::default()).await;
 
     // Copied from benchmarks.rs
@@ -28,14 +28,13 @@ async fn index_transfer_events() -> anyhow::Result<()> {
             50_000_000,
             NonEmpty::new_unchecked(msgs),
         )
-        .await
         .should_succeed();
 
     suite.app.indexer.wait_for_finish().await?;
 
     // The 2 transfers should have been indexed.
 
-    let blocks = velox_indexer_sql::entity::blocks::Entity::find()
+    let blocks = indexer_sql::entity::blocks::Entity::find()
         .all(&velox_context.db)
         .await?;
 
@@ -67,14 +66,13 @@ async fn index_transfer_events() -> anyhow::Result<()> {
             50_000_000,
             NonEmpty::new_unchecked(vec![msg]),
         )
-        .await
         .should_succeed();
 
     // Force the runtime to wait for the async indexer task to finish
     suite.app.indexer.wait_for_finish().await?;
 
     // The transfer should have been indexed.
-    let blocks = velox_indexer_sql::entity::blocks::Entity::find()
+    let blocks = indexer_sql::entity::blocks::Entity::find()
         .all(&velox_context.db)
         .await?;
 

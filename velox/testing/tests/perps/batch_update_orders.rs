@@ -1,23 +1,23 @@
 use {
     crate::{default_pair_param, default_param, register_oracle_prices},
-    std::collections::BTreeMap,
-    velox_math::{Uint64, Uint128},
     velox_order_book::{
         Dimensionless, OrderId, OrderKind, OrderRemoved, Quantity, QueryOrdersByUserResponseItem,
         ReasonForOrderRemoval, TimeInForce, UsdPrice,
     },
-    velox_primitives::{
-        Addressable, CheckedContractEvent, Coins, Denom, JsonDeExt, NonEmpty, QuerierExt,
-        ResultExt, SearchEvent, btree_map,
-    },
-    velox_testing::{OracleTestEntry, TestOption, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
+        oracle::{self, PriceSource},
         perps::{
             self, CancelOrderRequest, Param, SubmitOrCancelOrderRequest, SubmitOrderRequest,
             UserReferralData,
         },
     },
+    bolt::{
+        Addressable, CheckedContractEvent, Coins, Denom, JsonDeExt, NonEmpty, NumberConst,
+        QuerierExt, ResultExt, SearchEvent, Timestamp, Udec128, Uint64, Uint128, btree_map,
+    },
+    std::collections::BTreeMap,
 };
 
 fn limit_bid(price: i128, size: i128, cid: Option<u64>) -> SubmitOrderRequest {
@@ -52,10 +52,10 @@ fn limit_ask(price: i128, size: i128, cid: Option<u64>) -> SubmitOrderRequest {
 
 /// Happy path: batch of [PostOnly bid, PostOnly ask, Cancel(One(bid))].
 /// Assert exactly one resting order remains (the ask).
-#[tokio::test]
-async fn batch_submit_then_cancel() {
+#[test]
+fn batch_submit_then_cancel() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     suite
         .execute(
@@ -64,7 +64,6 @@ async fn batch_submit_then_cancel() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Submit bid first to learn its OrderId, then run the batch.
@@ -86,16 +85,12 @@ async fn batch_submit_then_cancel() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(orders.len(), 1, "only the ask should remain on the book");
     let (_, ask) = orders.iter().next().unwrap();
@@ -105,10 +100,10 @@ async fn batch_submit_then_cancel() {
 /// Atomic replacement: user rests 3 orders, then issues a batch that
 /// cancels all and re-submits 3 new ones. Assert the new orders are on
 /// the book and the old ones are gone.
-#[tokio::test]
-async fn batch_atomic_replace() {
+#[test]
+fn batch_atomic_replace() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     suite
         .execute(
@@ -117,7 +112,6 @@ async fn batch_atomic_replace() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Rest 3 bids at descending prices.
@@ -129,17 +123,13 @@ async fn batch_atomic_replace() {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(limit_bid(price, 1, None))),
                 Coins::new(),
             )
-            .await
             .should_succeed();
     }
 
     let old_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(old_orders.len(), 3);
     let old_ids: Vec<OrderId> = old_orders.keys().copied().collect();
@@ -160,16 +150,12 @@ async fn batch_atomic_replace() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let new_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(new_orders.len(), 3, "book should hold the 3 new bids");
     for id in old_ids {
@@ -182,12 +168,12 @@ async fn batch_atomic_replace() {
 
 /// Within one batch, a `Cancel(OneByClientOrderId(42))` releases the
 /// client id so a subsequent `Submit` carrying the same client id
-/// succeeds — the two actions see each other's writes via the engine's
+/// succeeds — the two actions see each other's writes via bolt's
 /// in-call `Buffer`.
-#[tokio::test]
-async fn batch_reuse_client_order_id() {
+#[test]
+fn batch_reuse_client_order_id() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     let cid = 42u64;
 
@@ -198,7 +184,6 @@ async fn batch_reuse_client_order_id() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     // Resting bid with client_order_id = 42.
@@ -213,7 +198,6 @@ async fn batch_reuse_client_order_id() {
             ))),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Batch: cancel by cid, then submit a new order carrying the same cid.
@@ -232,16 +216,12 @@ async fn batch_reuse_client_order_id() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(orders.len(), 1);
     let (_, order) = orders.iter().next().unwrap();
@@ -251,10 +231,10 @@ async fn batch_reuse_client_order_id() {
 /// A duplicate `client_order_id` within a batch fails the second submit
 /// and rolls back the first. Snapshot `UserState` and `orders` before
 /// the batch; assert they're byte-identical after the failure.
-#[tokio::test]
-async fn batch_atomicity_on_submit_failure() {
+#[test]
+fn batch_atomicity_on_submit_failure() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     suite
         .execute(
@@ -263,25 +243,18 @@ async fn batch_atomicity_on_submit_failure() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     let state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let orders_before: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     // Two submits with the same client_order_id. The first is accepted by the
@@ -300,25 +273,18 @@ async fn batch_atomicity_on_submit_failure() {
             )),
             Coins::new(),
         )
-        .await
         .should_fail();
 
     let state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let orders_after: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert_eq!(state_before, state_after, "UserState must be unchanged");
@@ -328,10 +294,10 @@ async fn batch_atomicity_on_submit_failure() {
 /// A bogus `Cancel(One(...))` mid-batch rolls back an earlier successful
 /// submit. Same snapshot-and-compare assertion as the submit-failure
 /// case above.
-#[tokio::test]
-async fn batch_atomicity_on_cancel_failure() {
+#[test]
+fn batch_atomicity_on_cancel_failure() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     suite
         .execute(
@@ -340,25 +306,18 @@ async fn batch_atomicity_on_cancel_failure() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     let state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let orders_before: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     suite
@@ -376,25 +335,18 @@ async fn batch_atomicity_on_cancel_failure() {
             )),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("order not found");
 
     let state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let orders_after: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
 
     assert_eq!(state_before, state_after);
@@ -411,10 +363,10 @@ async fn batch_atomicity_on_cancel_failure() {
 /// cid fails the second action. After the revert, user1's resting ask
 /// is still on the book and user1's UserState (margin, position) is
 /// byte-identical to before the batch.
-#[tokio::test]
-async fn batch_fill_reverts_on_later_failure() {
+#[test]
+fn batch_fill_reverts_on_later_failure() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // Both users deposit margin.
     for user in [&mut accounts.user1, &mut accounts.user2] {
@@ -425,7 +377,6 @@ async fn batch_fill_reverts_on_later_failure() {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
                 Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -437,7 +388,6 @@ async fn batch_fill_reverts_on_later_failure() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(limit_ask(2_000, 1, None))),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Snapshot maker (user1) and taker (user2) state plus their order books
@@ -445,38 +395,26 @@ async fn batch_fill_reverts_on_later_failure() {
     // would leak taker mutations (position, reserved_margin, unrested bids)
     // past the rollback.
     let user1_state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let user1_orders_before: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     let user2_state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
     let user2_orders_before: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     // user2 submits a batch: market buy (crosses user1's ask) followed by a
@@ -505,7 +443,6 @@ async fn batch_fill_reverts_on_later_failure() {
             )),
             Coins::new(),
         )
-        .await
         .should_fail();
 
     // Both maker and taker state must be byte-identical — the fill against
@@ -513,38 +450,26 @@ async fn batch_fill_reverts_on_later_failure() {
     // a bid resting mid-batch under cid=99) are rolled back along with the
     // rest of the batch.
     let user1_state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let user1_orders_after: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     let user2_state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
     let user2_orders_after: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     assert_eq!(
@@ -569,10 +494,10 @@ async fn batch_fill_reverts_on_later_failure() {
 
 /// Sanity: a single-action batch produces observable state equivalent
 /// to the corresponding direct `SubmitOrder` message.
-#[tokio::test]
-async fn batch_single_action() {
+#[test]
+fn batch_single_action() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     suite
         .execute(
@@ -581,7 +506,6 @@ async fn batch_single_action() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -596,16 +520,12 @@ async fn batch_single_action() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(orders.len(), 1);
 }
@@ -613,10 +533,10 @@ async fn batch_single_action() {
 /// `Param::max_action_batch_size` is enforced. Lower the cap to 3 via
 /// `Configure`; a 4-action batch is rejected without touching any
 /// storage.
-#[tokio::test]
-async fn batch_size_cap_enforced() {
+#[test]
+fn batch_size_cap_enforced() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // Lower the cap to 3.
     suite
@@ -634,7 +554,6 @@ async fn batch_size_cap_enforced() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -644,16 +563,12 @@ async fn batch_size_cap_enforced() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     let state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
 
@@ -673,16 +588,12 @@ async fn batch_size_cap_enforced() {
             )),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("`max_action_batch_size` (3), found: 4");
 
     let state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     assert_eq!(state_before, state_after);
@@ -702,7 +613,6 @@ async fn batch_size_cap_enforced() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 }
 
@@ -712,8 +622,8 @@ async fn batch_size_cap_enforced() {
 /// succeeds if the cid-index write from the first action is visible
 /// through the in-call `Buffer`, which proves cross-pair reads
 /// inside a batch see earlier in-batch writes.
-#[tokio::test]
-async fn batch_across_two_pairs() {
+#[test]
+fn batch_across_two_pairs() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
 
     let eth_pair = pair_id();
@@ -721,24 +631,29 @@ async fn batch_across_two_pairs() {
 
     // Register oracle prices for both pairs (plus USDC for settlement).
     suite
-        .seed_oracle_prices(
+        .execute(
             &mut accounts.owner,
-            btree_map! {
-                usdc::DENOM.clone() => OracleTestEntry {
-                    pyth_id: 1,
-                    humanized_price: UsdPrice::new_int(1),
+            contracts.oracle,
+            &oracle::ExecuteMsg::RegisterPriceSources(btree_map! {
+                usdc::DENOM.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::ONE,
+                    precision: usdc::DECIMAL as u8,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-                eth_pair.clone() => OracleTestEntry {
-                    pyth_id: 2,
-                    humanized_price: UsdPrice::new_int(2_000),
+                eth_pair.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::new(2_000),
+                    precision: 0,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-                btc_pair.clone() => OracleTestEntry {
-                    pyth_id: 3,
-                    humanized_price: UsdPrice::new_int(60_000),
+                btc_pair.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::new(60_000),
+                    precision: 0,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-            },
+            }),
+            Coins::new(),
         )
-        .await;
+        .should_succeed();
 
     // Add the BTC pair (the ETH pair is already configured at genesis;
     // re-specifying it keeps it unchanged).
@@ -755,7 +670,6 @@ async fn batch_across_two_pairs() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -765,7 +679,6 @@ async fn batch_across_two_pairs() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(100_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     let eth_cid = 1u64;
@@ -808,18 +721,14 @@ async fn batch_across_two_pairs() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Only the BTC bid remains; the ETH bid was cancelled by its
     // just-written cid.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(orders.len(), 1, "only the BTC bid should remain");
     let (_, order) = orders.iter().next().unwrap();
@@ -833,10 +742,10 @@ async fn batch_across_two_pairs() {
 /// cancelled order emits an `OrderRemoved` event with reason
 /// `SelfTradePrevention` carrying the original `client_order_id`.
 /// The taker's remaining GTC ask rests since no other makers exist.
-#[tokio::test]
-async fn batch_stp_fires_for_self_match() {
+#[test]
+fn batch_stp_fires_for_self_match() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     suite
         .execute(
@@ -845,7 +754,6 @@ async fn batch_stp_fires_for_self_match() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     let bid_cid = 42u64;
@@ -879,7 +787,6 @@ async fn batch_stp_fires_for_self_match() {
             )),
             Coins::new(),
         )
-        .await
         .should_succeed()
         .events;
 
@@ -902,12 +809,9 @@ async fn batch_stp_fires_for_self_match() {
 
     // Post-batch: only the rested ask remains.
     let orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed();
     assert_eq!(orders.len(), 1, "only the rested ask should remain");
     let (_, order) = orders.iter().next().unwrap();
@@ -921,10 +825,10 @@ async fn batch_stp_fires_for_self_match() {
 /// so the cancel's cid-index lookup returns "order not found".
 /// Both maker and taker state must be byte-identical to the
 /// pre-batch snapshot.
-#[tokio::test]
-async fn batch_cancel_fails_for_filled_order() {
+#[test]
+fn batch_cancel_fails_for_filled_order() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     for user in [&mut accounts.user1, &mut accounts.user2] {
         suite
@@ -934,7 +838,6 @@ async fn batch_cancel_fails_for_filled_order() {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
                 Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -946,34 +849,24 @@ async fn batch_cancel_fails_for_filled_order() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(limit_ask(2_000, 1, None))),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let user1_state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let user2_state_before: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
     let user2_orders_before: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     let cid = 99u64;
@@ -1008,36 +901,26 @@ async fn batch_cancel_fails_for_filled_order() {
             )),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("order not found");
 
     // Full rollback: maker's resting ask and both users' states are
     // byte-identical to the snapshot.
     let user1_state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let user2_state_after: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed()
         .unwrap();
     let user2_orders_after: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: accounts.user2.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: accounts.user2.address(),
+        })
         .should_succeed();
 
     assert_eq!(user1_state_before, user1_state_after);
@@ -1055,10 +938,10 @@ async fn batch_cancel_fails_for_filled_order() {
 /// The third action collides on the cid and fails → batch reverts.
 /// `USER_REFERRAL_DATA` for both referrer and referee must be
 /// unchanged.
-#[tokio::test]
-async fn batch_referral_commissions_rollback() {
+#[test]
+fn batch_referral_commissions_rollback() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // user1 activates their referrer slot by setting a fee share
     // ratio; user2 then points to user1 as their referrer.
@@ -1071,7 +954,6 @@ async fn batch_referral_commissions_rollback() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
     suite
         .execute(
@@ -1083,7 +965,6 @@ async fn batch_referral_commissions_rollback() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // user2 (taker/payer) and user3 (maker/counterparty) deposit.
@@ -1095,7 +976,6 @@ async fn batch_referral_commissions_rollback() {
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
                 Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
@@ -1106,28 +986,21 @@ async fn batch_referral_commissions_rollback() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::SubmitOrder(limit_ask(2_000, 1, None))),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Snapshot cumulative referral data for both referrer and referee
     // before the failing batch.
     let user1_data_before: UserReferralData = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryReferralDataRequest {
-                user: 1,
-                since: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryReferralDataRequest {
+            user: 1,
+            since: None,
+        })
         .should_succeed();
     let user2_data_before: UserReferralData = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryReferralDataRequest {
-                user: 2,
-                since: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryReferralDataRequest {
+            user: 2,
+            since: None,
+        })
         .should_succeed();
 
     let cid = 7u64;
@@ -1160,26 +1033,19 @@ async fn batch_referral_commissions_rollback() {
             )),
             Coins::new(),
         )
-        .await
         .should_fail();
 
     let user1_data_after: UserReferralData = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryReferralDataRequest {
-                user: 1,
-                since: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryReferralDataRequest {
+            user: 1,
+            since: None,
+        })
         .should_succeed();
     let user2_data_after: UserReferralData = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryReferralDataRequest {
-                user: 2,
-                since: None,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryReferralDataRequest {
+            user: 2,
+            since: None,
+        })
         .should_succeed();
 
     assert_eq!(

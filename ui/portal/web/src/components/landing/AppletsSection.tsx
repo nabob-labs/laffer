@@ -1,0 +1,49 @@
+import { useFavApplets } from "@laffer/store";
+
+import { APPLETS } from "~/constants";
+
+import { IconAddCross, useApp } from "@laffer/applets-kit";
+import { Link } from "@tanstack/react-router";
+
+export function AppletsSection() {
+  const { favApplets } = useFavApplets();
+  const { setSearchBarVisibility } = useApp();
+
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,_minmax(80px,_1fr))] md:flex md:flex-wrap gap-4 md:gap-4 w-full md:min-h-fit md:justify-start">
+      {favApplets.map((appletId) => {
+        const applet = APPLETS[appletId];
+        if (!applet) return null;
+        return (
+          <div
+            className="md:w-[5.5rem] h-auto flex items-start justify-center md:[&:nth-child(6n)]:flex-1 md:[&:nth-child(6n)]:justify-end md:[&:nth-child(6n+1)]:justify-start"
+            key={`applets.section.${applet.title}}`}
+          >
+            <div className="flex flex-col items-center gap-2">
+              <Link
+                to={applet.path}
+                className="h-16 w-16 md:h-20 md:w-20 shadow-account-card bg-surface-primary-red hover:bg-surface-secondary-red transition-all rounded-xl p-[10px]"
+              >
+                <img src={applet.img} alt={applet.title} className="w-full h-full" />
+              </Link>
+              <div className="md:w-[5rem] h-[36.41px] relative">
+                <p className="text-sm font-bold text-center">{applet.title}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="md:w-[5.5rem] h-auto flex items-start justify-center md:[&:nth-child(6n)]:flex-1 md:[&:nth-child(6n)]:justify-end md:[&:nth-child(6n+1)]:justify-start">
+        <button
+          type="button"
+          onClick={() => setSearchBarVisibility(true)}
+          className="h-16 w-16 md:h-20 md:w-20 shadow-account-card border-[1.43px] border-outline-tertiary-rice text-outline-tertiary-rice bg-surface-primary-rice hover:bg-surface-secondary-rice transition-all rounded-xl p-[10px] flex items-center justify-center cursor-pointer"
+        >
+          <IconAddCross />
+        </button>
+        <p className="min-h-6" />
+      </div>
+    </div>
+  );
+}

@@ -1,14 +1,14 @@
 use {
     crate::{config::Config, home_directory::HomeDirectory},
     clap::{Parser, Subcommand},
+    config_parser::parse_config,
+    indexer_cache::{IndexerPath, cache_file::CacheFile},
     metrics_exporter_prometheus::PrometheusBuilder,
     std::{
         sync::{Arc, Mutex},
         time::{Duration, Instant},
     },
     tokio::task::JoinSet,
-    velox_config_parser::parse_config,
-    velox_indexer_cache::{Cache, IndexerPath, cache_file::CacheFile},
 };
 
 #[derive(Parser)]
@@ -43,6 +43,9 @@ enum SubCmd {
     /// Start the metrics HTTP server
     MetricsHttpd,
 
+    /// Verify integrity of candle data in ClickHouse
+    CheckCandles,
+
     /// Sync the indexer block cache to S3
     S3Sync {
         /// Wallclock ceiling for the whole sync, in seconds.
@@ -61,7 +64,7 @@ impl IndexerCmd {
 
                 println!("Block: {:#?}", block_to_index.block);
                 println!("Block Outcome: {:#?}", block_to_index.block_outcome);
-            }
+            },
             SubCmd::Blocks { start, end } => {
                 let indexer_path = IndexerPath::Dir(app_dir.indexer_dir());
                 let mut set = JoinSet::new();
@@ -78,7 +81,7 @@ impl IndexerCmd {
                                 Err(err) => {
                                     println!("Error loading block {block}: {err}");
                                     return;
-                                }
+                                },
                             };
 
                             println!("Block: {:#?}", block_to_index.block);
@@ -92,7 +95,7 @@ impl IndexerCmd {
                         eprintln!("Task panicked: {e}");
                     }
                 }
-            }
+            },
             SubCmd::Find { text, start, end } => {
                 let indexer_path = IndexerPath::Dir(app_dir.indexer_dir());
                 let mut set = JoinSet::new();
@@ -110,7 +113,7 @@ impl IndexerCmd {
                                 Err(err) => {
                                     eprintln!("Error loading block {block}: {err}");
                                     return;
-                                }
+                                },
                             };
 
                             let block_text = format!("{:#?}", block_to_index.block);
@@ -130,7 +133,7 @@ impl IndexerCmd {
                         eprintln!("Task panicked: {e}");
                     }
                 }
-            }
+            },
             SubCmd::MetricsHttpd => {
                 // Initialize metrics handler.
                 // This should be done as soon as possible to capture all events.
@@ -145,22 +148,37 @@ impl IndexerCmd {
                 );
 
                 // Run the metrics HTTP server
-                velox_indexer_metrics::run_metrics_server(
+                indexer_httpd::server::run_metrics_server(
                     &cfg.metrics_httpd.ip,
                     cfg.metrics_httpd.port,
                     metrics_handler,
                 )
                 .await?;
-            }
+            },
+            SubCmd::CheckCandles => {
+                let cfg: Config = parse_config(app_dir.config_file())?;
+
+                let clickhouse_context = velox_indexer_clickhouse::context::Context::new(
+                    cfg.indexer.clickhouse.url,
+                    cfg.indexer.clickhouse.database,
+                    cfg.indexer.clickhouse.user,
+                    cfg.indexer.clickhouse.password,
+                );
+
+                let clickhouse_indexer = velox_indexer_clickhouse::Indexer::new(clickhouse_context);
+
+                clickhouse_indexer.check_all().await?;
+            },
             SubCmd::S3Sync { timeout_secs } => {
                 let cfg: Config = parse_config(app_dir.config_file())?;
 
-                let mut indexer_cache = Cache::new_with_dir(app_dir.indexer_dir());
+                let mut indexer_cache = indexer_cache::Cache::new_with_dir(app_dir.indexer_dir());
                 indexer_cache.context.s3 = cfg.indexer.s3.clone();
 
                 // Read the last synced height from disk
                 let last_synced_height =
-                    Cache::read_last_s3_block_height(&indexer_cache.context)?.unwrap_or(0);
+                    indexer_cache::Cache::read_last_s3_block_height(&indexer_cache.context)?
+                        .unwrap_or(0);
 
                 let start = Instant::now();
 
@@ -175,7 +193,7 @@ impl IndexerCmd {
                 // leaking them on the runtime.
                 let new_height = match tokio::time::timeout(
                     Duration::from_secs(timeout_secs),
-                    Cache::sync_to_s3(
+                    indexer_cache::Cache::sync_to_s3(
                         &indexer_cache.context,
                         indexer_cache.s3_bitmap.clone(),
                         last_synced_height,
@@ -188,12 +206,15 @@ impl IndexerCmd {
                     Err(_elapsed) => {
                         tracing::error!(timeout_secs, "S3 sync exceeded deadline; aborting");
                         anyhow::bail!("s3 sync timed out after {timeout_secs}s");
-                    }
+                    },
                 };
 
                 // Only store the new height if sync succeeded and made progress
                 if let Some(height) = new_height {
-                    Cache::store_last_s3_block_height(&indexer_cache.context, height)?;
+                    indexer_cache::Cache::store_last_s3_block_height(
+                        &indexer_cache.context,
+                        height,
+                    )?;
                 }
 
                 tracing::info!(
@@ -210,16 +231,20 @@ impl IndexerCmd {
                 // - We write the bitmap at the same time as the velox process, therefor missing the change from velox process
                 // Both are fine.
 
-                let on_disk_s3_bitmap = Cache::s3_bitmap(&indexer_cache.context.indexer_path);
+                let on_disk_s3_bitmap =
+                    indexer_cache::Cache::s3_bitmap(&indexer_cache.context.indexer_path);
 
                 let s3_bitmap = indexer_cache.s3_bitmap.lock().map_err(|err| {
-                    velox_indexer_cache::error::IndexerError::mutex_poisoned(err.to_string())
+                    indexer_cache::error::IndexerError::mutex_poisoned(err.to_string())
                 })?;
 
                 let merged = &on_disk_s3_bitmap | &*s3_bitmap;
 
-                Cache::store_bitmap(&indexer_cache.context, Arc::new(Mutex::new(merged)))?;
-            }
+                indexer_cache::Cache::store_bitmap(
+                    &indexer_cache.context,
+                    Arc::new(Mutex::new(merged)),
+                )?;
+            },
         }
 
         Ok(())

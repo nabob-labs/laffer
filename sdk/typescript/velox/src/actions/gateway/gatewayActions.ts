@@ -1,0 +1,47 @@
+import type { Client, Transport } from "@laffer/sdk/types";
+import type { VeloxClient } from "../../types/clients.js";
+import type { Signer } from "../../types/signer.js";
+
+import {
+  transferRemote,
+  type TransferRemoteParameters,
+  type TransferRemoteReturnType,
+} from "./mutations/transferRemote.js";
+
+import {
+  getWithdrawalFee,
+  type GetWithdrawalFeeParameters,
+  type GetWithdrawalFeeReturnType,
+} from "./queries/getWithdrawalFee.js";
+
+export type GatewayQueryActions = {
+  gateway: {
+    getWithdrawalFee: (parameters: GetWithdrawalFeeParameters) => GetWithdrawalFeeReturnType;
+  };
+};
+
+export function gatewayQueryActions<transport extends Transport = Transport>(
+  client: Client<transport>,
+): GatewayQueryActions {
+  return {
+    gateway: {
+      getWithdrawalFee: (...args) => getWithdrawalFee(client, ...args),
+    },
+  };
+}
+
+export type GatewayMutationActions = {
+  gateway: {
+    transferRemote: (parameters: TransferRemoteParameters) => TransferRemoteReturnType;
+  };
+};
+
+export function gatewayMutationActions<transport extends Transport = Transport>(
+  client: VeloxClient<transport, Signer>,
+): GatewayMutationActions {
+  return {
+    gateway: {
+      transferRemote: (...args) => transferRemote(client, ...args),
+    },
+  };
+}

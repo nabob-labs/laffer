@@ -1,32 +1,29 @@
 use {
     crate::{
-        ContractWrapper, MockValidatorSets, Preset, TestAccount, TestAccounts, TestSuite,
-        TestSuiteNaive, TestSuiteNaiveWithIndexer, TestSuiteWithIndexer,
+        Preset, TestAccount, TestAccounts,
         constants::{
-            mock_arbitrum, mock_ethereum, owner, user1, user2, user3, user4, user5, user6, user7,
-            user8, user9,
+            mock_arbitrum, mock_base, mock_ethereum, mock_optimism, mock_solana, owner, user1,
+            user2, user3, user4, user5, user6, user7, user8, user9,
         },
     },
-    std::sync::Arc,
-    velox_app::{AppError, Db, Indexer, NaiveProposalPreparer, NullIndexer, SimpleCommitment, Vm},
-    velox_db_disk::DiskDb,
-    velox_db_memory::MemDb,
     velox_genesis::{Codes, Contracts, GenesisCodes, GenesisOption, build_genesis},
-    velox_hyperlane_types::{Addr32, mailbox},
-    velox_indexer_hooked::HookedIndexer,
-    velox_indexer_httpd::TendermintRpcClient,
-    velox_math::Uint128,
-    velox_primitives::{
-        Addr, Addressable, Binary, BlockInfo, Coins, Duration, Message, ResultExt, Timestamp, coins,
-    },
     velox_proposal_preparer::ProposalPreparer,
-    velox_temp_rocksdb::TempDataDir,
     velox_types::{
-        constants::usdc,
         gateway::{Domain, Remote},
         warp,
     },
-    velox_vm_rust::RustVm,
+    bolt::{Addr, BlockInfo, Coins, ContractWrapper, Duration, Message, Uint128},
+    bolt_app::{AppError, Db, Indexer, NaiveProposalPreparer, NullIndexer, SimpleCommitment, Vm},
+    bolt_db_disk::DiskDb,
+    bolt_db_memory::MemDb,
+    bolt_vm_rust::RustVm,
+    hyperlane_testing::MockValidatorSets,
+    hyperlane_types::{Addr32, mailbox},
+    indexer_hooked::HookedIndexer,
+    indexer_httpd::TendermintRpcClient,
+    pyth_client::PythClientCache,
+    std::sync::Arc,
+    temp_rocksdb::TempDataDir,
 };
 
 /// Configurable options for setting up a test.
@@ -46,26 +43,7 @@ impl TestOption {
     pub fn with_mocked_clickhouse(self) -> Self {
         Self {
             mocked_clickhouse: true,
-            ..self
-        }
-    }
-
-    /// Anchor the genesis block (and therefore every derived block timestamp)
-    /// to wall-clock `now()`. Indexer tests that read ClickHouse columns
-    /// filtered by `created_at >= now() - INTERVAL …` need this so the synthetic
-    /// block timestamps fall inside the lookback window.
-    pub fn with_recent_genesis(self) -> Self {
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock before unix epoch")
-            .as_secs();
-
-        Self {
-            genesis_block: BlockInfo {
-                timestamp: Timestamp::from_seconds(now_secs as u128),
-                ..self.genesis_block
-            },
-            ..self
+            ..Self::default()
         }
     }
 }
@@ -82,6 +60,20 @@ pub struct BridgeOp {
     pub amount: Uint128,
     pub recipient: Addr,
 }
+
+pub type TestSuite<
+    PP = ProposalPreparer<PythClientCache>,
+    DB = MemDb,
+    VM = RustVm,
+    ID = NullIndexer,
+> = bolt::TestSuite<DB, VM, PP, ID>;
+
+pub type TestSuiteWithIndexer<
+    PP = ProposalPreparer<PythClientCache>,
+    DB = MemDb,
+    VM = RustVm,
+    ID = HookedIndexer,
+> = bolt::TestSuite<DB, VM, PP, ID>;
 
 /// Set up a `TestSuite` with `MemDb`, `RustVm`, `ProposalPreparer` with cached
 /// Pyth Lazer client, and `ContractWrapper` codes.
@@ -115,7 +107,7 @@ pub fn setup_test(
 pub fn setup_test_naive(
     test_opt: TestOption,
 ) -> (
-    TestSuiteNaive,
+    TestSuite<NaiveProposalPreparer>,
     TestAccounts,
     Codes<ContractWrapper>,
     Contracts,
@@ -128,7 +120,7 @@ pub fn setup_test_naive_with_custom_genesis(
     test_opt: TestOption,
     genesis_opt: GenesisOption,
 ) -> (
-    TestSuiteNaive,
+    TestSuite<NaiveProposalPreparer>,
     TestAccounts,
     Codes<ContractWrapper>,
     Contracts,
@@ -145,55 +137,6 @@ pub fn setup_test_naive_with_custom_genesis(
     )
 }
 
-pub async fn setup_test_naive_with_indexer_and_create_blocks(
-    test_opt: TestOption,
-    count: usize,
-) -> (
-    TestSuiteNaiveWithIndexer,
-    TestAccounts,
-    velox_indexer_httpd::context::FullContext,
-    velox_indexer_sql::TestDatabaseGuard,
-) {
-    let (mut suite, mut accounts, _, _, _, httpd_context, _, _, db_guard) =
-        setup_test_naive_with_indexer(test_opt).await;
-
-    for _ in 0..count {
-        suite
-            .transfer(
-                &mut accounts.user1,
-                accounts.user2.address(),
-                coins! { usdc::DENOM.clone() => 100 },
-            )
-            .await
-            .should_succeed();
-    }
-
-    suite.app.indexer.wait_for_finish().await.unwrap();
-
-    (suite, accounts, httpd_context, db_guard)
-}
-
-pub async fn setup_test_naive_with_indexer(
-    test_opt: TestOption,
-) -> (
-    TestSuiteNaiveWithIndexer,
-    TestAccounts,
-    Codes<ContractWrapper>,
-    Contracts,
-    MockValidatorSets,
-    velox_indexer_httpd::context::FullContext,
-    velox_indexer_cache::context::Context,
-    velox_indexer_clickhouse::context::Context,
-    velox_indexer_sql::TestDatabaseGuard,
-) {
-    setup_test_with_indexer_pp_and_custom_genesis(
-        NaiveProposalPreparer,
-        test_opt,
-        GenesisOption::preset_test(),
-    )
-    .await
-}
-
 pub async fn setup_test_with_indexer(
     test_opt: TestOption,
 ) -> (
@@ -202,10 +145,10 @@ pub async fn setup_test_with_indexer(
     Codes<ContractWrapper>,
     Contracts,
     MockValidatorSets,
-    velox_indexer_httpd::context::FullContext,
-    velox_indexer_cache::context::Context,
+    indexer_httpd::context::Context,
+    velox_httpd::context::Context,
     velox_indexer_clickhouse::context::Context,
-    velox_indexer_sql::TestDatabaseGuard,
+    indexer_sql::TestDatabaseGuard,
 ) {
     setup_test_with_indexer_and_custom_genesis(test_opt, GenesisOption::preset_test()).await
 }
@@ -224,42 +167,15 @@ pub async fn setup_test_with_indexer_and_custom_genesis(
     Codes<ContractWrapper>,
     Contracts,
     MockValidatorSets,
-    velox_indexer_httpd::context::FullContext,
-    velox_indexer_cache::context::Context,
+    indexer_httpd::context::Context,
+    velox_httpd::context::Context,
     velox_indexer_clickhouse::context::Context,
-    velox_indexer_sql::TestDatabaseGuard,
+    indexer_sql::TestDatabaseGuard,
 ) {
-    setup_test_with_indexer_pp_and_custom_genesis(
-        ProposalPreparer::new_with_cache(),
-        options,
-        genesis_opt,
-    )
-    .await
-}
-
-pub async fn setup_test_with_indexer_pp_and_custom_genesis<PP>(
-    pp: PP,
-    options: TestOption,
-    genesis_opt: GenesisOption,
-) -> (
-    TestSuite<MemDb, RustVm, PP, HookedIndexer>,
-    TestAccounts,
-    Codes<ContractWrapper>,
-    Contracts,
-    MockValidatorSets,
-    velox_indexer_httpd::context::FullContext,
-    velox_indexer_cache::context::Context,
-    velox_indexer_clickhouse::context::Context,
-    velox_indexer_sql::TestDatabaseGuard,
-)
-where
-    PP: velox_app::ProposalPreparer + Clone + Send + Sync + 'static,
-    AppError: From<<MemDb as Db>::Error> + From<<RustVm as Vm>::Error> + From<PP::Error>,
-{
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or("postgres://postgres@localhost/grug_test".to_string());
+        .unwrap_or("postgres://postgres@localhost/bolt_test".to_string());
 
-    let (builder, db_guard) = velox_indexer_sql::IndexerBuilder::default()
+    let (builder, db_guard) = indexer_sql::IndexerBuilder::default()
         .with_database_url(database_url)
         // Keep pool small to avoid exhausting server connections when tests run in parallel
         .with_database_max_connections(5)
@@ -268,10 +184,22 @@ where
 
     let indexer = builder.build().await.unwrap();
 
-    let sql_context = indexer.context.clone();
+    let indexer_context = indexer.context.clone();
 
-    let indexer_cache = velox_indexer_cache::Cache::new_with_tempdir();
+    let mut hooked_indexer = HookedIndexer::new();
+
+    let indexer_cache = indexer_cache::Cache::new_with_tempdir();
     let indexer_cache_context = indexer_cache.context.clone();
+
+    // Create a separate context for velox indexer (shares DB but has independent pubsub)
+    let velox_context: velox_indexer_sql::context::Context = indexer
+        .context
+        .with_separate_pubsub()
+        .await
+        .expect("Failed to create separate context for velox indexer in test setup")
+        .into();
+
+    let velox_indexer = velox_indexer_sql::indexer::Indexer::new(velox_context.clone());
 
     let mut clickhouse_context = velox_indexer_clickhouse::context::Context::new(
         format!(
@@ -279,7 +207,7 @@ where
             std::env::var("CLICKHOUSE_HOST").unwrap_or("localhost".to_string()),
             std::env::var("CLICKHOUSE_PORT").unwrap_or("8123".to_string())
         ),
-        std::env::var("CLICKHOUSE_DATABASE").unwrap_or("grug_dev".to_string()),
+        std::env::var("CLICKHOUSE_DATABASE").unwrap_or("bolt_dev".to_string()),
         std::env::var("CLICKHOUSE_USER").unwrap_or("default".to_string()),
         std::env::var("CLICKHOUSE_PASSWORD").unwrap_or("".to_string()),
     );
@@ -290,37 +218,45 @@ where
         clickhouse_context = clickhouse_context.with_mock();
     }
 
+    hooked_indexer.add_indexer(indexer_cache).await.unwrap();
+    hooked_indexer.add_indexer(indexer).await.unwrap();
+    hooked_indexer.add_indexer(velox_indexer).await.unwrap();
+
     let clickhouse_indexer =
         velox_indexer_clickhouse::indexer::Indexer::new(clickhouse_context.clone());
+    hooked_indexer
+        .add_indexer(clickhouse_indexer)
+        .await
+        .unwrap();
 
-    let hooked_indexer = HookedIndexer::new(indexer_cache, indexer, clickhouse_indexer);
-    // Capture the realtime reader handle before `hooked_indexer` is moved into
-    // the suite; it shares the ring + broadcast the indexer publishes to.
-    let stream_context = hooked_indexer.stream.context();
+    let db = MemDb::new();
+    let vm = RustVm::new();
 
     let (suite, accounts, codes, contracts, validator_sets) = setup_suite_with_db_and_vm(
-        MemDb::new(),
-        RustVm::new(),
-        pp,
+        db.clone(),
+        vm.clone(),
+        ProposalPreparer::new_with_cache(),
         hooked_indexer,
         RustVm::genesis_codes(),
         options,
         genesis_opt,
     );
 
-    if !clickhouse_context.is_mocked() {
-        clickhouse_context.start_cache().await.unwrap();
-    }
+    clickhouse_context.start_cache().await.unwrap();
 
     let consensus_client = Arc::new(TendermintRpcClient::new("http://localhost:26657").unwrap());
 
-    let httpd_context = velox_indexer_httpd::context::FullContext::new(
-        indexer_cache_context.clone(),
-        sql_context,
-        clickhouse_context.clone(),
-        stream_context,
+    let indexer_httpd_context = indexer_httpd::context::Context::new(
+        indexer_cache_context,
+        indexer_context,
         Arc::new(suite.app.clone_without_indexer()),
         consensus_client,
+    );
+
+    let velox_httpd_context = velox_httpd::context::Context::new(
+        indexer_httpd_context.clone(),
+        clickhouse_context.clone(),
+        velox_context,
         None,
     );
 
@@ -330,8 +266,8 @@ where
         codes,
         contracts,
         validator_sets,
-        httpd_context,
-        indexer_cache_context,
+        indexer_httpd_context,
+        velox_httpd_context,
         clickhouse_context,
         db_guard,
     )
@@ -344,7 +280,7 @@ where
 pub fn setup_benchmark_rust(
     dir: &TempDataDir,
 ) -> (
-    TestSuite<DiskDb<SimpleCommitment>, RustVm, NaiveProposalPreparer, NullIndexer>,
+    TestSuite<NaiveProposalPreparer, DiskDb<SimpleCommitment>, RustVm, NullIndexer>,
     TestAccounts,
     Codes<ContractWrapper>,
     Contracts,
@@ -365,27 +301,26 @@ pub fn setup_benchmark_rust(
     )
 }
 
-pub fn setup_suite_with_db_and_vm<DB, VM, PP, ID, C>(
+pub fn setup_suite_with_db_and_vm<DB, VM, PP, ID>(
     db: DB,
     vm: VM,
     pp: PP,
     indexer: ID,
-    codes: Codes<C>,
+    codes: Codes<VM::Code>,
     test_opt: TestOption,
     genesis_opt: GenesisOption,
 ) -> (
-    TestSuite<DB, VM, PP, ID>,
+    TestSuite<PP, DB, VM, ID>,
     TestAccounts,
-    Codes<C>,
+    Codes<VM::Code>,
     Contracts,
     MockValidatorSets,
 )
 where
     DB: Db,
-    VM: Vm + Clone + Send + Sync + 'static,
-    C: Clone + Into<Binary>,
+    VM: Vm + GenesisCodes + Clone + Send + Sync + 'static,
     ID: Indexer,
-    PP: velox_app::ProposalPreparer,
+    PP: bolt_app::ProposalPreparer,
     AppError: From<DB::Error> + From<VM::Error> + From<PP::Error>,
 {
     let local_domain = genesis_opt.hyperlane.local_domain;
@@ -444,8 +379,16 @@ where
     // Create the mock validator sets.
     // TODO: For now, we always use the preset mock. It may not match the ones
     // in the genesis state. We should generate this based on the `genesis_opt`.
-    let validator_sets =
-        MockValidatorSets::new_preset(&[mock_arbitrum::DOMAIN, mock_ethereum::DOMAIN], false);
+    let validator_sets = MockValidatorSets::new_preset(
+        &[
+            mock_arbitrum::DOMAIN,
+            mock_base::DOMAIN,
+            mock_ethereum::DOMAIN,
+            mock_optimism::DOMAIN,
+            mock_solana::DOMAIN,
+        ],
+        false,
+    );
 
     for op in (test_opt.bridge_ops)(&accounts) {
         match op.remote {
@@ -459,20 +402,19 @@ where
                     op.amount,
                     op.recipient,
                 ));
-            }
+            },
             Remote::Bitcoin => {
                 todo!("bitcoin bridge isn't supported yet");
-            }
+            },
         }
     }
 
-    let suite = TestSuite::new_with_db_vm_indexer_and_pp(
+    let suite = bolt::TestSuite::new_with_db_vm_indexer_and_pp(
         db,
         vm,
         pp,
         indexer,
         None, // TODO: support customizing upgrade handler in tests
-        contracts.clone(),
         test_opt.chain_id,
         test_opt.block_time,
         test_opt.default_gas_limit,

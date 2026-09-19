@@ -1,0 +1,38 @@
+import { useStorage } from "@laffer/store";
+import { useEffect } from "react";
+
+export type ThemesSchema = "dark" | "light" | "system";
+export type Themes = "dark" | "light";
+
+export type UseThemeReturnType = {
+  theme: Themes;
+  themeSchema: ThemesSchema;
+  hasLoaded: boolean;
+  setThemeSchema: (theme: ThemesSchema) => void;
+};
+
+const getPreferredScheme = (): Themes => {
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "light";
+};
+
+export function useTheme(): UseThemeReturnType {
+  const [themeSchema, setThemeSchema, hasLoaded] = useStorage<ThemesSchema>("app.theme", {
+    initialValue: "system",
+    sync: true,
+  });
+
+  const theme = themeSchema === "system" ? getPreferredScheme() : themeSchema;
+
+  useEffect(() => {
+    const root = window?.document.documentElement;
+
+    root.classList.remove("light", "dark");
+
+    root.classList.add(theme);
+  }, [theme]);
+
+  return { theme, themeSchema, setThemeSchema, hasLoaded };
+}

@@ -1,17 +1,18 @@
 use {
-    k256::ecdsa::SigningKey,
-    std::collections::{BTreeMap, BTreeSet},
-    velox_hyperlane_types::{
+    velox_testing::{generate_random_key, setup_test},
+    velox_types::constants::{velox, usdc},
+    bolt::{
+        Addr, Addressable, CheckedContractEvent, Coins, HexByteArray, Inner, JsonDeExt, QuerierExt,
+        ResultExt, SearchEvent, UniqueVec, btree_set, coins,
+    },
+    hyperlane_testing::constants::MOCK_HYPERLANE_LOCAL_DOMAIN,
+    hyperlane_types::{
         announcement_hash, domain_hash, eip191_hash,
         mailbox::Domain,
         va::{self, Announce, VA_DOMAIN_KEY},
     },
-    velox_primitives::{
-        Addr, Addressable, CheckedContractEvent, Coins, HexByteArray, Inner, JsonDeExt, QuerierExt,
-        ResultExt, SearchEvent, UniqueVec, btree_set, coins,
-    },
-    velox_testing::{MOCK_HYPERLANE_LOCAL_DOMAIN, generate_random_key, setup_test},
-    velox_types::constants::{usdc, velox},
+    k256::ecdsa::SigningKey,
+    std::collections::{BTreeMap, BTreeSet},
 };
 
 const ANNOUNCE_FEE_PER_BYTE: u128 = 100;
@@ -37,7 +38,7 @@ impl MockAnnouncement {
         storage_location: &str,
     ) -> Self {
         // Derive the validator's Ethereum address.
-        let validator_address = velox_eth_utils::derive_address(sk.verifying_key());
+        let validator_address = eth_utils::derive_address(sk.verifying_key());
 
         // Create message to sign.
         let message_hash = eip191_hash(announcement_hash(
@@ -46,7 +47,7 @@ impl MockAnnouncement {
         ));
 
         // Sign the message.
-        let signature = velox_eth_utils::sign_digest(message_hash.into_inner(), &sk);
+        let signature = eth_utils::sign_digest(message_hash.into_inner(), &sk);
 
         Self {
             sk,
@@ -57,8 +58,8 @@ impl MockAnnouncement {
     }
 }
 
-#[tokio::test]
-async fn test_announce() {
+#[test]
+fn test_announce() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test(Default::default());
 
     let mut validators_expected = BTreeSet::new();
@@ -85,7 +86,6 @@ async fn test_announce() {
                 },
                 Coins::new(),
             )
-            .await
             .should_fail_with_error("invalid payment");
     }
 
@@ -102,7 +102,6 @@ async fn test_announce() {
                 },
                 coins! { velox::DENOM.clone() => announce_fee },
             )
-            .await
             .should_fail_with_error("invalid payment");
     }
 
@@ -122,7 +121,6 @@ async fn test_announce() {
                     usdc::DENOM.clone()  => announce_fee,
                 },
             )
-            .await
             .should_fail_with_error("invalid payment");
     }
 
@@ -139,7 +137,6 @@ async fn test_announce() {
                 },
                 coins! { usdc::DENOM.clone() => announce_fee - 1 },
             )
-            .await
             .should_fail_with_error("insufficient validator announce fee");
     }
 
@@ -156,7 +153,6 @@ async fn test_announce() {
                 },
                 coins! { usdc::DENOM.clone() => announce_fee },
             )
-            .await
             .should_succeed()
             .events
             .search_event::<CheckedContractEvent>()
@@ -214,7 +210,6 @@ async fn test_announce() {
                 },
                 coins! { usdc::DENOM.clone() => announce_fee },
             )
-            .await
             .should_fail_with_error("duplicate data found!");
     }
 
@@ -240,7 +235,6 @@ async fn test_announce() {
                 },
                 coins! { usdc::DENOM.clone() => announce_fee2 },
             )
-            .await
             .should_succeed()
             .events
             .search_event::<CheckedContractEvent>()
@@ -305,7 +299,6 @@ async fn test_announce() {
                 },
                 coins! { usdc::DENOM.clone() => announce_fee3 },
             )
-            .await
             .should_succeed()
             .events
             .search_event::<CheckedContractEvent>()
@@ -372,7 +365,6 @@ async fn test_announce() {
                 },
                 coins! { usdc::DENOM.clone() => announce_fee },
             )
-            .await
             .should_fail_with_error("pubkey mismatch");
     }
 }

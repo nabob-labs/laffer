@@ -1,14 +1,15 @@
 use {
-    std::sync::LazyLock,
-    velox_math::{MultiplyFraction, Udec128, Uint128},
-    velox_primitives::{
-        Addr, Addressable, Coin, Coins, Duration, Inner, QuerierExt, ResultExt, StdError, Timestamp,
-    },
-    velox_testing::{TestAccounts, TestSuiteNaive, setup_test_naive},
+    velox_testing::{TestAccounts, TestSuite, setup_test_naive},
     velox_types::{
-        constants::{usdc, velox},
+        constants::{velox, usdc},
         vesting::{self, QueryPositionRequest, Schedule, VestingStatus},
     },
+    bolt::{
+        Addr, Addressable, Coin, Coins, Duration, Inner, MultiplyFraction, QuerierExt, ResultExt,
+        StdError, Timestamp, Udec128, Uint128,
+    },
+    bolt_app::NaiveProposalPreparer,
+    std::sync::LazyLock,
 };
 
 static TEST_AMOUNT: LazyLock<Coin> = LazyLock::new(|| Coin {
@@ -19,14 +20,14 @@ static TEST_AMOUNT: LazyLock<Coin> = LazyLock::new(|| Coin {
 const ONE_MONTH: Duration = Duration::from_weeks(4);
 const ONE_DAY: Duration = Duration::from_days(1);
 
-fn setup_test() -> (TestSuiteNaive, TestAccounts, Addr) {
+fn setup_test() -> (TestSuite<NaiveProposalPreparer>, TestAccounts, Addr) {
     let (suite, accounts, _codes, contracts, _) = setup_test_naive(Default::default());
 
     (suite, accounts, contracts.vesting)
 }
 
-#[tokio::test]
-async fn missing_funds() {
+#[test]
+fn missing_funds() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -43,12 +44,11 @@ async fn missing_funds() {
             },
             Coins::default(),
         )
-        .await
         .should_fail_with_error("invalid payment: expecting 1, found 0");
 }
 
-#[tokio::test]
-async fn non_owner_creating_position() {
+#[test]
+fn non_owner_creating_position() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -65,12 +65,11 @@ async fn non_owner_creating_position() {
             },
             Coins::one(velox::DENOM.clone(), 100).unwrap(),
         )
-        .await
         .should_fail_with_error("you don't have the right");
 }
 
-#[tokio::test]
-async fn not_velox_token() {
+#[test]
+fn not_velox_token() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -87,15 +86,14 @@ async fn not_velox_token() {
             },
             Coins::one(usdc::DENOM.clone(), 100).unwrap(),
         )
-        .await
         .should_fail_with_error(StdError::invalid_payment(
             velox::DENOM.clone(),
             usdc::DENOM.clone(),
         ));
 }
 
-#[tokio::test]
-async fn before_unlocking_starting_time() {
+#[test]
+fn before_unlocking_starting_time() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -112,7 +110,6 @@ async fn before_unlocking_starting_time() {
             },
             TEST_AMOUNT.clone(),
         )
-        .await
         .should_succeed();
 
     let initial_balance = suite
@@ -130,7 +127,6 @@ async fn before_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_fail_with_error("nothing to claim");
     }
 
@@ -145,7 +141,6 @@ async fn before_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -170,7 +165,6 @@ async fn before_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -195,7 +189,6 @@ async fn before_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -204,18 +197,15 @@ async fn before_unlocking_starting_time() {
 
         // Check if the position is updated
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                vesting::QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, vesting::QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| res.position.claimed == res.position.total);
     }
 }
 
-#[tokio::test]
-async fn after_unlocking_starting_time() {
+#[test]
+fn after_unlocking_starting_time() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -232,7 +222,6 @@ async fn after_unlocking_starting_time() {
             },
             TEST_AMOUNT.clone(),
         )
-        .await
         .should_succeed();
 
     let initial_balance = suite
@@ -250,7 +239,6 @@ async fn after_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_fail_with_error("nothing to claim");
     }
 
@@ -265,7 +253,6 @@ async fn after_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_fail_with_error("nothing to claim");
     }
 
@@ -281,7 +268,6 @@ async fn after_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -306,7 +292,6 @@ async fn after_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -331,7 +316,6 @@ async fn after_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         suite
@@ -340,18 +324,15 @@ async fn after_unlocking_starting_time() {
 
         // Check if the position is updated
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                vesting::QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, vesting::QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| res.position.claimed == res.position.total);
     }
 }
 
-#[tokio::test]
-async fn terminate_before_unlocking_starting_time_never_claimed() {
+#[test]
+fn terminate_before_unlocking_starting_time_never_claimed() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -368,7 +349,6 @@ async fn terminate_before_unlocking_starting_time_never_claimed() {
             },
             TEST_AMOUNT.clone(),
         )
-        .await
         .should_succeed();
 
     let epoch = epoch(ONE_MONTH * 27, TEST_AMOUNT.amount);
@@ -395,17 +375,13 @@ async fn terminate_before_unlocking_starting_time_never_claimed() {
                 },
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check the status of the position after terminate
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| {
                 res.position.vesting_status == VestingStatus::Terminated(Uint128::new(40))
                     && res.claimable == Uint128::new(37)
@@ -421,7 +397,6 @@ async fn terminate_before_unlocking_starting_time_never_claimed() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check the balance of the user
@@ -440,17 +415,13 @@ async fn terminate_before_unlocking_starting_time_never_claimed() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check if the position is removed
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                vesting::QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, vesting::QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| {
                 res.position.vesting_status == VestingStatus::Terminated(Uint128::new(40))
                     && res.position.claimed == Uint128::new(40)
@@ -463,8 +434,8 @@ async fn terminate_before_unlocking_starting_time_never_claimed() {
     }
 }
 
-#[tokio::test]
-async fn terminate_before_unlocking_starting_time_with_claimed() {
+#[test]
+fn terminate_before_unlocking_starting_time_with_claimed() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -481,7 +452,6 @@ async fn terminate_before_unlocking_starting_time_with_claimed() {
             },
             TEST_AMOUNT.clone(),
         )
-        .await
         .should_succeed();
 
     let epoch = epoch(ONE_MONTH * 27, TEST_AMOUNT.amount);
@@ -507,7 +477,6 @@ async fn terminate_before_unlocking_starting_time_with_claimed() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check the balance of the user
@@ -534,17 +503,13 @@ async fn terminate_before_unlocking_starting_time_with_claimed() {
                 },
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check the status of the position after terminate
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| {
                 res.position.vesting_status == VestingStatus::Terminated(Uint128::new(44))
                     && res.position.claimed == Uint128::new(37)
@@ -563,17 +528,13 @@ async fn terminate_before_unlocking_starting_time_with_claimed() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check if the position is removed
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                vesting::QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, vesting::QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| {
                 res.position.vesting_status == VestingStatus::Terminated(Uint128::new(44))
                     && res.position.claimed == Uint128::new(44)
@@ -586,8 +547,8 @@ async fn terminate_before_unlocking_starting_time_with_claimed() {
     }
 }
 
-#[tokio::test]
-async fn terminate_after_unlocking_starting_time() {
+#[test]
+fn terminate_after_unlocking_starting_time() {
     let (mut suite, mut accounts, vesting_addr) = setup_test();
 
     suite
@@ -604,7 +565,6 @@ async fn terminate_after_unlocking_starting_time() {
             },
             TEST_AMOUNT.clone(),
         )
-        .await
         .should_succeed();
 
     let initial_balance = suite
@@ -629,17 +589,13 @@ async fn terminate_after_unlocking_starting_time() {
                 },
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check the status of the position after terminate
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| {
                 res.position.vesting_status == VestingStatus::Terminated(Uint128::new(37))
                     && res.claimable == Uint128::new(37)
@@ -655,17 +611,13 @@ async fn terminate_after_unlocking_starting_time() {
                 &vesting::ExecuteMsg::Claim {},
                 Coins::default(),
             )
-            .await
             .should_succeed();
 
         // Check if the position is removed
         suite
-            .query_wasm_smart(
-                vesting_addr,
-                vesting::QueryPositionRequest {
-                    user: accounts.user1.address(),
-                },
-            )
+            .query_wasm_smart(vesting_addr, vesting::QueryPositionRequest {
+                user: accounts.user1.address(),
+            })
             .should_succeed_and(|res| {
                 res.position.vesting_status == VestingStatus::Terminated(Uint128::new(37))
                     && res.position.claimed == Uint128::new(37)

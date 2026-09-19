@@ -1,15 +1,14 @@
 use {
-    crate::{MockValidatorSets, constants::MOCK_HYPERLANE_LOCAL_DOMAIN, suite::TestSuite},
     anyhow::anyhow,
-    std::ops::{Deref, DerefMut},
-    velox_app::{AppError, Db, Indexer, NaiveProposalPreparer, NullIndexer, ProposalPreparer, Vm},
-    velox_db_memory::MemDb,
     velox_genesis::Contracts,
-    velox_hyperlane_types::{Addr32, mailbox},
-    velox_math::Uint128,
-    velox_primitives::{Addr, Addressable, Coins, Hash256, Signer},
     velox_types::{gateway::Domain, warp::TokenMessage},
-    velox_vm_rust::RustVm,
+    bolt::{Addr, Addressable, Coins, Hash256, Signer, TestSuite, Uint128},
+    bolt_app::{AppError, Db, Indexer, NaiveProposalPreparer, NullIndexer, ProposalPreparer, Vm},
+    bolt_db_memory::MemDb,
+    bolt_vm_rust::RustVm,
+    hyperlane_testing::{MockValidatorSets, constants::MOCK_HYPERLANE_LOCAL_DOMAIN},
+    hyperlane_types::{Addr32, mailbox},
+    std::ops::{Deref, DerefMut},
 };
 
 pub struct HyperlaneTestSuite<DB = MemDb, VM = RustVm, PP = NaiveProposalPreparer, ID = NullIndexer>
@@ -75,9 +74,9 @@ where
         }
     }
 
-    pub async fn receive_warp_transfer<R, A>(
+    pub fn receive_warp_transfer<R, A>(
         &mut self,
-        relayer: &mut (dyn Signer + Send + Sync),
+        relayer: &mut dyn Signer,
         origin_domain: Domain,
         origin_warp: Addr32,
         recipient: &R,
@@ -119,7 +118,6 @@ where
                 },
                 Coins::new(),
             )
-            .await
             .result
             .map_err(|err| anyhow!(err))?;
 

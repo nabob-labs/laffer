@@ -1,6 +1,6 @@
-use {velox_backtrace::Backtraceable, velox_indexer_sql::pubsub::error::PubSubError};
+use {error_backtrace::Backtraceable, indexer_sql::pubsub::error::PubSubError};
 
-#[velox_backtrace::backtrace]
+#[error_backtrace::backtrace]
 #[derive(Debug, thiserror::Error)]
 pub enum IndexerError {
     #[error(transparent)]
@@ -8,14 +8,20 @@ pub enum IndexerError {
     Io(std::io::Error),
 
     #[error(transparent)]
-    Std(velox_primitives::StdError),
+    Std(bolt::StdError),
 
     #[error(transparent)]
-    Math(velox_math::MathError),
+    Math(bolt::MathError),
 
     #[error(transparent)]
     #[backtrace(new)]
     Clickhouse(clickhouse::error::Error),
+
+    #[error("missing block or block outcome")]
+    MissingBlockOrBlockOutcome,
+
+    #[error("candle timeout")]
+    CandleTimeout,
 
     #[error(transparent)]
     #[backtrace(new)]
@@ -31,14 +37,14 @@ pub enum IndexerError {
 
 macro_rules! parse_error {
     ($variant:ident, $e:expr) => {
-        velox_app::IndexerError::$variant {
+        bolt_app::IndexerError::$variant {
             error: $e.to_string(),
             backtrace: $e.backtrace,
         }
     };
 }
 
-impl From<IndexerError> for velox_app::IndexerError {
+impl From<IndexerError> for bolt_app::IndexerError {
     fn from(error: IndexerError) -> Self {
         match error {
             IndexerError::Clickhouse(error) => parse_error!(Database, error),
@@ -46,7 +52,7 @@ impl From<IndexerError> for velox_app::IndexerError {
             err => {
                 let err = err.into_generic_backtraced_error();
                 parse_error!(Hook, err)
-            }
+            },
         }
     }
 }

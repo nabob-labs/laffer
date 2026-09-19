@@ -2,19 +2,17 @@ use {
     criterion::{
         AxisScale, BatchSize, Criterion, PlotConfiguration, criterion_group, criterion_main,
     },
-    rand::{Rng, distributions::Alphanumeric},
-    std::time::Duration,
-    velox_app::{AppError, Db, ProposalPreparer, Vm},
     velox_genesis::{Codes, Contracts},
-    velox_primitives::{
-        Addr, Binary, Coins, HashExt, JsonSerExt, Message, NonEmpty, ResultExt, Tx, coins,
-    },
-    velox_temp_rocksdb::TempDataDir,
     velox_testing::{TestAccounts, TestSuite, setup_benchmark_rust},
     velox_types::{
         account_factory::{self, Salt},
         constants::usdc,
     },
+    bolt::{Addr, Binary, Coins, HashExt, JsonSerExt, Message, NonEmpty, ResultExt, Tx, coins},
+    bolt_app::{AppError, Db, ProposalPreparer, Vm},
+    rand::{Rng, distributions::Alphanumeric},
+    std::time::Duration,
+    temp_rocksdb::TempDataDir,
 };
 
 const MEASUREMENT_TIME: Duration = Duration::from_secs(90);
@@ -27,8 +25,8 @@ fn random_string(len: usize) -> String {
         .collect()
 }
 
-async fn do_send<T, PP, DB, VM>(
-    suite: &mut TestSuite<DB, VM, PP>,
+fn do_send<T, PP, DB, VM>(
+    suite: &mut TestSuite<PP, DB, VM>,
     mut accounts: TestAccounts,
     codes: Codes<T>,
     contracts: Contracts,
@@ -65,7 +63,6 @@ where
             50_000_000,
             NonEmpty::new_unchecked(msgs),
         )
-        .await
         .should_succeed();
 
     // Make a block that contains 100 transactions.
@@ -119,13 +116,6 @@ where
 /// We do this by making a single block that contains 100 transactions, each tx
 /// containing one `Message::Transfer`.
 fn sends(c: &mut Criterion) {
-    // Criterion's `bench_function` takes a sync closure, but the TestSuite API
-    // is async. Build a runtime once and `block_on` per iteration.
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-
     let mut group = c.benchmark_group("sends");
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
     group.measurement_time(MEASUREMENT_TIME);
@@ -137,14 +127,15 @@ fn sends(c: &mut Criterion) {
                 let dir = TempDataDir::new(&format!("__velox_bench_sends_{}", random_string(8)));
                 let (mut suite, accounts, codes, contracts, _) = setup_benchmark_rust(&dir);
 
-                let txs = rt.block_on(do_send(&mut suite, accounts, codes, contracts));
+                let txs = do_send(&mut suite, accounts, codes, contracts);
 
                 // Note: `dir` must be passed to the routine, so that it's alive
                 // until the end of this iteration.
                 (dir, suite, txs)
             },
             |(_dir, mut suite, txs)| {
-                rt.block_on(suite.make_block(txs))
+                suite
+                    .make_block(txs)
                     .block_outcome
                     .tx_outcomes
                     .into_iter()

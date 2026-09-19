@@ -1,0 +1,129 @@
+import { forwardRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { wait } from "@laffer/velox/utils";
+
+import {
+  Button,
+  IconButton,
+  IconClose,
+  IconErrorCircle,
+  IconSuccessCircle,
+  Input,
+  Spinner,
+  useApp,
+  useInputs,
+  WarningContainer,
+} from "@laffer/applets-kit";
+import { m } from "@laffer/foundation/paraglide/messages.js";
+import { useAccount, usePublicClient, useSigningClient, useSubmitTx } from "@laffer/store";
+import type { Address } from "@laffer/velox/types";
+
+export const EditUsername = forwardRef((_props, _ref) => {
+  const { hideModal } = useApp();
+  const { username, account, refreshAccounts } = useAccount();
+  const { data: signingClient } = useSigningClient();
+  const { register, inputs, reset } = useInputs({
+    initialValues: {
+      editedUsername: username as string,
+    },
+  });
+
+  const client = usePublicClient();
+
+  const { value: editedUsername, error } = inputs.editedUsername || {};
+
+  const {
+    data: isUsernameAvailable = null,
+    isFetching,
+    error: errorMessage = error,
+  } = useQuery({
+    enabled: !!editedUsername && editedUsername !== username,
+    queryKey: ["username", editedUsername],
+    queryFn: async ({ signal }) => {
+      await wait(450);
+      if (signal.aborted) return null;
+      if (!editedUsername) return new Error(m["signin.errors.usernameRequired"]());
+      if (error) throw error;
+      const { accounts } = await client
+        .getUser({ userIndexOrName: { name: editedUsername } })
+        .catch(() => ({ accounts: {} }));
+      const isUsernameAvailable = !Object.keys(accounts).length;
+
+      if (!isUsernameAvailable) throw new Error(m["signup.errors.usernameTaken"]());
+      return isUsernameAvailable;
+    },
+  });
+
+  const { mutateAsync: changeUsername, isPending } = useSubmitTx({
+    mutation: {
+      onSuccess: () => {
+        refreshAccounts?.();
+        hideModal();
+        reset();
+      },
+      mutationFn: async () =>
+        await signingClient?.updateUsername({
+          sender: account?.address as Address,
+          username: editedUsername,
+        }),
+    },
+  });
+
+  return (
+    <div className="flex flex-col bg-surface-primary-rice md:border border-outline-secondary-gray pt-0 md:pt-6 rounded-xl relative p-4 md:p-6 gap-6 w-full md:max-w-[25rem]">
+      <IconButton
+        className="hidden md:block absolute right-4 top-4"
+        variant="link"
+        onClick={() => hideModal()}
+      >
+        <IconClose />
+      </IconButton>
+      <div className="flex flex-col gap-4">
+        <h2 className="text-ink-primary-900 h4-bold w-full">
+          {m["settings.session.username.editUsername"]()}
+        </h2>
+        <WarningContainer description={m["settings.session.username.editDescription"]()} />
+      </div>
+      <form
+        className="flex flex-col gap-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          changeUsername();
+        }}
+      >
+        <Input
+          {...register("editedUsername", {
+            strategy: "onChange",
+            validate: (value) => {
+              if (!value || value.length > 15 || !/^[a-z0-9_]+$/.test(value)) {
+                return m["errors.validations.usernameRule"]();
+              }
+              return true;
+            },
+            mask: (v) => v.toLowerCase(),
+          })}
+          errorMessage={
+            errorMessage instanceof Error ? errorMessage.message : (errorMessage as string)
+          }
+          endContent={
+            isFetching ? (
+              <Spinner size="sm" color="gray" />
+            ) : errorMessage ? (
+              <IconErrorCircle className="text-primitives-red-light-400" />
+            ) : isUsernameAvailable ? (
+              <IconSuccessCircle className="text-status-success" />
+            ) : null
+          }
+        />
+        <Button
+          fullWidth
+          isLoading={isPending}
+          isDisabled={inputs.editedUsername?.value === username || !!errorMessage}
+          type="submit"
+        >
+          {m["settings.session.username.save"]()}
+        </Button>
+      </form>
+    </div>
+  );
+});

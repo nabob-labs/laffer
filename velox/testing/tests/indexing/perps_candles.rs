@@ -1,7 +1,5 @@
 use {
     assertor::*,
-    std::collections::HashMap,
-    velox_app::{Indexer, NaiveProposalPreparer},
     velox_genesis::Contracts,
     velox_indexer_clickhouse::{
         entities::{
@@ -12,25 +10,28 @@ use {
         },
         indexer::perps_candles::cache::{PerpsCandleCache, PerpsCandleCacheKey},
     },
-    velox_math::{NumberConst, Udec128_6, Uint128},
     velox_order_book::{Dimensionless, OrderKind, Quantity, TimeInForce, UsdPrice},
-    velox_primitives::{
-        BlockInfo, Coins, Denom, Duration, Hash256, ResultExt, Timestamp, btree_map,
-    },
     velox_testing::{
-        OracleTestEntry, Preset, TestAccounts, TestOption, TestSuiteNaiveWithIndexer,
-        create_perps_fill, pair_id, setup_perps_env, setup_test_naive_with_indexer,
-        setup_test_with_indexer_pp_and_custom_genesis,
+        Preset, TestAccounts, TestOption, TestSuiteWithIndexer,
+        perps::{create_perps_fill, pair_id, setup_perps_env},
+        setup_test_with_indexer, setup_test_with_indexer_and_custom_genesis,
     },
     velox_types::{
         constants::usdc,
+        oracle::{self, PriceSource},
         perps::{self, PairParam, RateSchedule},
     },
+    bolt::{
+        BlockInfo, Coins, Denom, Duration, Hash256, NumberConst, ResultExt, Timestamp, Udec128,
+        Udec128_6, btree_map,
+    },
+    bolt_app::Indexer,
+    std::collections::HashMap,
 };
 
 /// Place a resting limit ask for user2 (no immediate fill).
-async fn place_limit_ask(
-    suite: &mut TestSuiteNaiveWithIndexer,
+fn place_limit_ask(
+    suite: &mut TestSuiteWithIndexer,
     accounts: &mut TestAccounts,
     contracts: &Contracts,
     price: u128,
@@ -54,13 +55,12 @@ async fn place_limit_ask(
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 }
 
 /// Submit a market buy for user1 (crosses resting asks).
-async fn market_buy(
-    suite: &mut TestSuiteNaiveWithIndexer,
+fn market_buy(
+    suite: &mut TestSuiteWithIndexer,
     accounts: &mut TestAccounts,
     contracts: &Contracts,
     size: u128,
@@ -81,7 +81,6 @@ async fn market_buy(
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 }
 
@@ -127,11 +126,11 @@ fn assert_candle_continuity(candles: &[PerpsCandle]) {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_basic() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000);
 
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 5).await;
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 5);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -171,15 +170,15 @@ async fn index_perps_candles_basic() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_multiple_fills_same_block() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000);
 
     // Place two limit asks at different prices, then a large market buy that
     // fills both in the same block.
-    place_limit_ask(&mut suite, &mut accounts, &contracts, 2_000, 3).await;
-    place_limit_ask(&mut suite, &mut accounts, &contracts, 2_100, 2).await;
-    market_buy(&mut suite, &mut accounts, &contracts, 5).await;
+    place_limit_ask(&mut suite, &mut accounts, &contracts, 2_000, 3);
+    place_limit_ask(&mut suite, &mut accounts, &contracts, 2_100, 2);
+    market_buy(&mut suite, &mut accounts, &contracts, 5);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -214,13 +213,13 @@ async fn index_perps_candles_multiple_fills_same_block() -> anyhow::Result<()> {
 async fn index_perps_candles_changing_prices() -> anyhow::Result<()> {
     // Default block time is 250ms, so all fills land in the same second/minute.
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 1_999, 1).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_001, 1).await;
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 1_999, 1);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_001, 1);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -249,8 +248,7 @@ async fn index_perps_candles_changing_prices() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_across_minute_boundary() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_with_indexer_pp_and_custom_genesis(
-            NaiveProposalPreparer,
+        setup_test_with_indexer_and_custom_genesis(
             TestOption {
                 block_time: Duration::from_seconds(20),
                 genesis_block: BlockInfo {
@@ -264,17 +262,17 @@ async fn index_perps_candles_across_minute_boundary() -> anyhow::Result<()> {
         )
         .await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
-    suite.make_empty_block().await;
+    suite.make_empty_block();
 
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 1_999, 1).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_001, 1).await;
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 1_999, 1);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_001, 1);
 
     // Several empty blocks to force candle boundary crossing
     for _ in 0..5 {
-        suite.make_empty_block().await;
+        suite.make_empty_block();
     }
 
     suite.app.indexer.wait_for_finish().await?;
@@ -311,12 +309,12 @@ async fn index_perps_candles_across_minute_boundary() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_many_fills_one_minute() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
     for _ in 0..10 {
-        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
+        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
     }
 
     suite.app.indexer.wait_for_finish().await?;
@@ -356,12 +354,12 @@ async fn index_perps_candles_many_fills_one_minute() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_cache_consistency() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -393,12 +391,12 @@ async fn index_perps_candles_cache_consistency() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_one_second_interval() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
     for _ in 0..10 {
-        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
+        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
     }
 
     suite.app.indexer.wait_for_finish().await?;
@@ -446,8 +444,7 @@ async fn index_perps_candles_one_second_interval() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_full_timeline() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_with_indexer_pp_and_custom_genesis(
-            NaiveProposalPreparer,
+        setup_test_with_indexer_and_custom_genesis(
             TestOption {
                 block_time: Duration::from_seconds(10),
                 genesis_block: BlockInfo {
@@ -461,7 +458,7 @@ async fn index_perps_candles_full_timeline() -> anyhow::Result<()> {
         )
         .await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
     // 30 fills with varying prices in the $1990–$2020 range.
     // Capped at 14 due to a deadlock in the block processing pipeline.
@@ -476,12 +473,12 @@ async fn index_perps_candles_full_timeline() -> anyhow::Result<()> {
     let expected_low = *prices.iter().min().unwrap();
 
     for &price in &prices {
-        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), price, 1).await;
+        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), price, 1);
     }
 
     // Push past another 5-minute boundary so we get an extra empty candle.
     for _ in 0..10 {
-        suite.make_empty_block().await;
+        suite.make_empty_block();
     }
 
     suite.app.indexer.wait_for_finish().await?;
@@ -585,31 +582,36 @@ async fn index_perps_candles_full_timeline() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_candles_multi_pair() -> anyhow::Result<()> {
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+        setup_test_with_indexer(TestOption::default()).await;
 
     let eth_pair = pair_id(); // perp/ethusd
     let btc_pair: Denom = "perp/btcusd".parse().unwrap();
 
     // Register oracle prices for both pairs.
     suite
-        .seed_oracle_prices(
+        .execute(
             &mut accounts.owner,
-            btree_map! {
-                usdc::DENOM.clone() => OracleTestEntry {
-                    pyth_id: 1,
-                    humanized_price: UsdPrice::new_int(1),
+            contracts.oracle,
+            &oracle::ExecuteMsg::RegisterPriceSources(btree_map! {
+                usdc::DENOM.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::ONE,
+                    precision: usdc::DECIMAL as u8,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-                eth_pair.clone() => OracleTestEntry {
-                    pyth_id: 2,
-                    humanized_price: UsdPrice::new_int(2_000),
+                eth_pair.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::new(2_000),
+                    precision: 0,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-                btc_pair.clone() => OracleTestEntry {
-                    pyth_id: 3,
-                    humanized_price: UsdPrice::new_int(60_000),
+                btc_pair.clone() => PriceSource::Fixed {
+                    humanized_price: Udec128::new(60_000),
+                    precision: 0,
+                    timestamp: Timestamp::from_nanos(u128::MAX),
                 },
-            },
+            }),
+            Coins::new(),
         )
-        .await;
+        .should_succeed();
 
     // Register the BTC pair via MaintainerMsg::Configure (ETH pair already
     // exists from genesis; re-specifying it keeps it unchanged).
@@ -651,7 +653,6 @@ async fn index_perps_candles_multi_pair() -> anyhow::Result<()> {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Deposit margin for both users.
@@ -661,15 +662,14 @@ async fn index_perps_candles_multi_pair() -> anyhow::Result<()> {
                 account,
                 contracts.perps,
                 &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
-                Coins::one(usdc::DENOM.clone(), Uint128::new(100_000 * 1_000_000)).unwrap(),
+                Coins::one(usdc::DENOM.clone(), bolt::Uint128::new(100_000 * 1_000_000)).unwrap(),
             )
-            .await
             .should_succeed();
     }
 
     // Create fills on both pairs.
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &eth_pair, 2_000, 3).await;
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &btc_pair, 60_000, 1).await;
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &eth_pair, 2_000, 3);
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &btc_pair, 60_000, 1);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -730,8 +730,7 @@ async fn index_perps_candles_preload_rebuilds_current_bucket_from_clickhouse() -
     let genesis_secs = chrono::Utc::now().timestamp() as u128 - 3_600;
 
     let (mut suite, mut accounts, _, contracts, _, _, _, clickhouse_context, _db_guard) =
-        setup_test_with_indexer_pp_and_custom_genesis(
-            NaiveProposalPreparer,
+        setup_test_with_indexer_and_custom_genesis(
             TestOption {
                 genesis_block: BlockInfo {
                     height: 0,
@@ -744,10 +743,10 @@ async fn index_perps_candles_preload_rebuilds_current_bucket_from_clickhouse() -
         )
         .await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 50_000);
 
     for _ in 0..5 {
-        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1).await;
+        create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 1);
     }
 
     suite.app.indexer.wait_for_finish().await?;

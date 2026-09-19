@@ -1,18 +1,19 @@
 #[cfg(feature = "async-graphql")]
 use {
     crate::{
-        entities::{graphql_decimal::GraphqlBigDecimal, perps_pair_price::dec},
+        entities::{graphql_decimal::GraphqlBigDecimal, pair_price::dec},
         error::Result,
     },
     async_graphql::{ComplexObject, SimpleObject},
     bigdecimal::{BigDecimal, num_bigint::BigInt},
-    velox_primitives::{Inner, Timestamp},
+    bolt::Inner,
+    bolt_types::Timestamp,
 };
 use {
     chrono::{DateTime, Utc},
     clickhouse::Row,
+    bolt::Udec128_6,
     serde::{Deserialize, Serialize},
-    velox_math::Udec128_6,
 };
 
 /// One row per block that emitted at least one `FeeDistributed` event.
@@ -30,13 +31,13 @@ pub struct PerpsFees {
     pub block_height: u64,
     #[serde(with = "clickhouse::serde::chrono::datetime64::micros")]
     pub created_at: DateTime<Utc>,
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub protocol_fee: Udec128_6,
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub vault_fee: Udec128_6,
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub referee_rebate: Udec128_6,
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub referrer_payout: Udec128_6,
     /// Number of `FeeDistributed` events aggregated into this row. `u32`
     /// suffices per-block; aggregate queries widen to `u64` to avoid
@@ -50,7 +51,7 @@ pub struct PerpsFees {
     /// `Liquidated.adl_size` is intentionally excluded — its magnitude
     /// already equals the sum of `Deleveraged.closing_size` for the same
     /// liquidation, so counting both would double the ADL contribution.
-    #[serde(with = "crate::entities::perps_pair_price::dec")]
+    #[serde(with = "crate::entities::pair_price::dec")]
     pub volume_usd: Udec128_6,
 }
 
@@ -210,7 +211,7 @@ fn udec128_6_to_big_decimal(v: &Udec128_6) -> GraphqlBigDecimal {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, chrono::SubsecRound, velox_math::NumberConst};
+    use {super::*, chrono::SubsecRound, bolt::NumberConst};
 
     /// Round-trip the row through serde with the ClickHouse-shaped
     /// adapters (`UInt128 ↔ Udec128_6`) to guard against accidental

@@ -1,0 +1,323 @@
+import { execSync } from "node:child_process";
+import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import fs from "fs-extra";
+
+import { defineConfig } from "@rsbuild/core";
+import { loadEnv } from "@rsbuild/core";
+import { pluginReact } from "@rsbuild/plugin-react";
+import { pluginSvgr } from "@rsbuild/plugin-svgr";
+
+import { sentryWebpackPlugin } from "@sentry/webpack-plugin";
+import { TanStackRouterRspack } from "@tanstack/router-plugin/rspack";
+import { GenerateSW } from "workbox-webpack-plugin";
+import { pluginNodePolyfill } from "@rsbuild/plugin-node-polyfill";
+
+import { devnet, local, testnet, mainnet } from "@laffer/velox";
+
+import type { Chain } from "@laffer/velox/types";
+import type { Rspack } from "@rsbuild/core";
+
+const isLocal = process.env.NODE_ENV === "development";
+
+const PORT = 5080;
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const { publicVars } = loadEnv();
+
+const environment = process.env.CONFIG_ENVIRONMENT || "test";
+
+const enabledFeatures = process.env.ENABLED_FEATURES
+  ? process.env.ENABLED_FEATURES.split(",").map((f) => f.trim())
+  : [];
+
+const gitCommit = (() => {
+  if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT;
+  try {
+    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "unknown";
+  }
+})();
+
+const workspaceRoot = path.resolve(__dirname, "../../../");
+
+const tradingViewPackageRoot = path.dirname(
+    require.resolve("@laffer/tradingview/package.json"),
+);
+const tradingViewPath = path.resolve(tradingViewPackageRoot, "charting_library");
+
+const tvVersion = (
+    fs.existsSync(tradingViewPackageRoot)
+        ? (fs.readJsonSync(path.resolve(tradingViewPackageRoot, "package.json")).version as string)
+        : "unknown"
+).replace(/\./g, "_");
+
+fs.copySync(
+  path.resolve(__dirname, "node_modules", "@laffer/foundation/images"),
+  path.resolve(__dirname, "public/images"),
+  { overwrite: true },
+);
+
+const hyperlaneConfig = async () => {
+  const mainFiles = {
+    config: "./config/hyperlane/config.json",
+    deployment: "./config/hyperlane/deployments.json",
+  };
+
+  const testFiles = {
+    config: "./config/hyperlane/config.testnet.json",
+    deployment: "./config/hyperlane/deployments-testnet.json",
+  };
+
+  const files = environment === "prod" ? mainFiles : testFiles;
+
+  const config = await import(files.config);
+  const deployments = await import(files.deployment);
+
+  Object.entries(deployments.evm).forEach(([chainId, deployment]: [string, any]) => {
+    config.evm[chainId].warp_routes = deployment.warp_routes.map(
+      ([warp_route_type, route]: [string, object]) => ({
+        warp_route_type,
+        ...route,
+      }),
+    );
+  });
+
+  return config;
+};
+
+const chain = {
+  local: local,
+  dev: devnet,
+  test: testnet,
+  prod: mainnet,
+}[environment] as Chain;
+
+const urls = {
+  local: {
+    faucetUrl: "http://localhost:8082/mint",
+    questUrl: "http://localhost:8081/check_username",
+    upUrl: "http://localhost:8080/up",
+    pointsUrl: "http://localhost:8083/points-api",
+  },
+  dev: {
+    faucetUrl: "https://faucet-devnet-ovh2.velox.zone/mint",
+    questUrl: "https://quest-bot-devnet.velox.zone/check_username",
+    upUrl: `${chain.urls.indexer}/up`,
+    pointsUrl: "https://points-devnet.velox.zone",
+  },
+  test: {
+    faucetUrl: "https://faucet-testnet-hetzner4.velox.zone/mint",
+    questUrl: "https://quest-bot-testnet.velox.zone/check_username",
+    upUrl: `${chain.urls.indexer}/up`,
+    pointsUrl: "https://points-testnet.velox.zone",
+  },
+  prod: {
+    faucetUrl: "/faucet",
+    questUrl: "/quest",
+    upUrl: `${chain.urls.indexer}/up`,
+    pointsUrl: "https://points-mainnet.velox.zone",
+  },
+}[environment]!;
+
+const banner = {
+  dev: "You are using devnet",
+  test: "You are using testnet",
+}[environment];
+
+const envConfig = `window.velox = ${JSON.stringify(
+  {
+    chain: isLocal
+      ? {
+          ...chain,
+          urls: { indexer: `http://localhost:${PORT}` },
+        }
+      : chain,
+    urls: isLocal
+      ? {
+          faucetUrl: `http://localhost:${PORT}/faucet`,
+          questUrl: `http://localhost:${PORT}/quest`,
+          upUrl: `http://localhost:${PORT}/up`,
+          pointsUrl: `http://localhost:${PORT}/points-api`,
+        }
+      : urls,
+    banner,
+    enabledFeatures,
+  },
+  null,
+  2,
+)};`;
+
+const configHash = crypto.createHash("md5").update(envConfig).digest("hex").slice(0, 8);
+
+const copyPattern = [];
+
+if (fs.existsSync(tradingViewPath)) {
+  copyPattern.push({
+    from: tradingViewPath,
+    to: `./charting_library/${tvVersion}`,
+  });
+}
+
+export default defineConfig({
+  resolve: {
+    aliasStrategy: "prefer-alias",
+    alias: {
+      // Order matters
+      "~/constants": path.resolve(__dirname, "./constants.config.ts"),
+      "~/mock": path.resolve(__dirname, "./mockData.ts"),
+      "~/store": path.resolve(__dirname, "./store.config.ts"),
+      "~/images": path.resolve(__dirname, "node_modules", "@laffer/foundation/images"),
+      "~/datafeed": path.resolve(__dirname, "./datafeed.config.ts"),
+      "~": path.resolve(__dirname, "./src"),
+    },
+  },
+  source: {
+    entry: {
+      index: "./src/index.tsx",
+    },
+    define: {
+      ...publicVars,
+      "import.meta.env.CONFIG_ENVIRONMENT": `"${process.env.CONFIG_ENVIRONMENT || "local"}"`,
+      "import.meta.env.HYPERLANE_CONFIG": JSON.stringify(await hyperlaneConfig()),
+      "import.meta.env.GIT_COMMIT": `"${gitCommit}"`,
+      "process.env": {},
+      "import.meta.env": {},
+    },
+  },
+  server: {
+    port: PORT,
+    proxy: {
+      "/graphql": {
+        target: `${chain.urls.indexer}/graphql`,
+        changeOrigin: true,
+        pathRewrite: { "^/graphql": "" },
+        ws: true,
+      },
+      "/faucet": {
+        target: urls.faucetUrl,
+        changeOrigin: true,
+        pathRewrite: { "^/faucet": "" },
+      },
+      "/quest": {
+        target: urls.questUrl,
+        changeOrigin: true,
+        pathRewrite: { "^/quest": "" },
+      },
+      "/up": {
+        target: `${chain.urls.indexer}/up`,
+        changeOrigin: true,
+        pathRewrite: { "^/up": "" },
+      },
+      "/points-api": {
+        target: urls.pointsUrl,
+        changeOrigin: true,
+        pathRewrite: { "^/points-api": "" },
+      },
+    },
+  },
+  html: {
+    template: "public/index.html",
+    title: "",
+    tags: [
+      { tag: "script", attrs: { src: `/static/js/config.js?v=${configHash}` }, append: false },
+      ...(environment === "test" || environment === "dev"
+        ? [
+            {
+              tag: "script",
+              children: `if (new URLSearchParams(window.location.search).has("debug")) {
+                            var s = document.createElement("script");
+                            s.src = "https://cdn.jsdelivr.net/npm/eruda";
+                            s.onload = function () { eruda.init(); };
+                            document.head.appendChild(s);
+                  }`,
+            },
+          ]
+        : []),
+    ],
+  },
+  performance: {
+    prefetch: {
+      type: "all-assets",
+      include: [/.*\.woff2$/],
+    },
+  },
+  output: {
+    distPath: {
+      root: "build",
+    },
+    copy: copyPattern,
+    minify: {
+      jsOptions: {
+        exclude: [],
+        minimizerOptions: {
+          compress: false,
+        },
+      },
+    },
+  },
+  plugins: [
+    pluginReact(),
+    pluginSvgr(),
+    pluginNodePolyfill({
+      include: ["buffer"],
+    }),
+  ],
+  tools: {
+    rspack: (config, { rspack }) => {
+      config.plugins ??= [];
+
+      config.plugins.push(
+        sentryWebpackPlugin({
+          org: process.env.SENTRY_ORG,
+          project: process.env.SENTRY_PROJECT,
+          authToken: process.env.SENTRY_AUTH_TOKEN,
+          telemetry: false,
+          sourcemaps: {
+            filesToDeleteAfterUpload: ["build/**/*.map"],
+          },
+        }),
+        TanStackRouterRspack({
+          routesDirectory: "./src/pages",
+          generatedRouteTree: "./src/app.pages.ts",
+        }),
+        {
+          apply(compiler: Rspack.Compiler) {
+            compiler.hooks.thisCompilation.tap("GenerateConfigPlugin", (compilation) => {
+              compilation.hooks.processAssets.tap(
+                {
+                  name: "GenerateConfigPlugin",
+                  stage: rspack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL,
+                },
+                (assets) => {
+                  assets["static/js/config.js"] = new rspack.sources.RawSource(envConfig);
+                },
+              );
+            });
+          },
+        },
+      );
+
+      if (process.env.NODE_ENV === "production") {
+        config.plugins.push(
+          new GenerateSW({
+            cacheId: "laffer-portal",
+            clientsClaim: true,
+            skipWaiting: true,
+            cleanupOutdatedCaches: true,
+            navigationPreload: false,
+            importScripts: ["/sw-disable-nav-preload.js"],
+          }),
+        );
+      }
+
+      config.devtool = "source-map";
+      return config;
+    },
+  },
+});

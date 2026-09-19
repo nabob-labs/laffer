@@ -1,45 +1,44 @@
 use {
     assertor::*,
-    sea_orm::EntityTrait,
-    velox_app::Indexer,
     velox_gateway::REVERSE_ROUTES,
-    velox_hyperlane_types::{
-        Addr32, IncrementalMerkleTree, addr32,
-        mailbox::{self, MAILBOX_VERSION, Message},
-    },
-    velox_math::{NumberConst, Uint128},
-    velox_primitives::{
-        Addr, Addressable, HashExt, QuerierExt, ResultExt, StdError, btree_map, coins,
-    },
     velox_testing::{
-        BalanceChange, HyperlaneTestSuite, MOCK_HYPERLANE_LOCAL_DOMAIN, TestOption, mock_arbitrum,
-        mock_ethereum, setup_test, setup_test_with_indexer,
+        HyperlaneTestSuite, TestOption,
+        constants::{mock_ethereum, mock_solana},
+        setup_test, setup_test_with_indexer,
     },
     velox_types::{
-        constants::{eth, usdc},
+        constants::{sol, usdc},
         gateway::{self, Remote},
         warp::TokenMessage,
     },
+    bolt::{
+        Addr, Addressable, BalanceChange, HashExt, NumberConst, QuerierExt, ResultExt, StdError,
+        Uint128, btree_map, coins,
+    },
+    bolt_app::Indexer,
+    hyperlane_testing::constants::MOCK_HYPERLANE_LOCAL_DOMAIN,
+    hyperlane_types::{
+        Addr32, IncrementalMerkleTree, addr32,
+        mailbox::{self, MAILBOX_VERSION, Message},
+    },
+    sea_orm::EntityTrait,
 };
 
-#[tokio::test]
-async fn receiving_remote() {
+#[test]
+fn receiving_remote() {
     let (suite, mut accounts, _, contracts, validator_sets) = setup_test(Default::default());
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
     const MOCK_RECEIVE_AMOUNT: u128 = 88;
 
-    suite.balances().record(&accounts.user1);
-
     let message_id = suite
         .receive_warp_transfer(
             &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::ETH_WARP,
+            mock_solana::DOMAIN,
+            mock_solana::SOL_WARP,
             &accounts.user1,
             Uint128::new(MOCK_RECEIVE_AMOUNT),
         )
-        .await
         .should_succeed();
 
     // The message should have been recorded as received.
@@ -51,10 +50,9 @@ async fn receiving_remote() {
         .should_succeed_and_equal(true);
 
     // Alloyed synthetic tokens should have been minted to the receiver.
-    suite.balances().should_change(
-        &accounts.user1,
-        btree_map! { eth::DENOM.clone() => BalanceChange::Increased(MOCK_RECEIVE_AMOUNT) },
-    );
+    suite
+        .query_balance(&accounts.user1, sol::DENOM.clone())
+        .should_succeed_and_equal(Uint128::new(MOCK_RECEIVE_AMOUNT));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -73,7 +71,7 @@ async fn sending_remote() {
 
     suite
         .balances()
-        .record_many([&accounts.user1.address(), &accounts.owner.address()]);
+        .record_many([&accounts.user1.address(), &contracts.taxman]);
 
     // User1 sends USDC to Ethereum.
     suite
@@ -89,7 +87,6 @@ async fn sending_remote() {
             },
             coins! { usdc::DENOM.clone() => SEND_AMOUNT },
         )
-        .await
         .should_succeed();
 
     // Message should have been inserted into the Merkle tree.
@@ -117,20 +114,16 @@ async fn sending_remote() {
         });
 
     // Sender should have been deducted balance.
-    suite.balances().should_change(
-        &accounts.user1,
-        btree_map! {
-            usdc::DENOM.clone() => BalanceChange::Decreased(SEND_AMOUNT),
-        },
-    );
+    suite.balances().should_change(&accounts.user1, btree_map! {
+        usdc::DENOM.clone() => BalanceChange::Decreased(SEND_AMOUNT),
+    });
 
-    // The chain owner should have received the fee.
-    suite.balances().should_change(
-        &accounts.owner,
-        btree_map! {
+    // Taxman should have received the fee.
+    suite
+        .balances()
+        .should_change(&contracts.taxman, btree_map! {
             usdc::DENOM.clone() => BalanceChange::Increased(ETHEREUM_USDC_WITHDRAWAL_FEE),
-        },
-    );
+        });
 
     // Gateway contract should not hold any of the synth token (should be burned).
     suite
@@ -148,7 +141,7 @@ async fn sending_remote() {
         .expect("Can't wait for indexer to finish");
 
     // The transfers should have been indexed.
-    let blocks = velox_indexer_sql::entity::blocks::Entity::find()
+    let blocks = indexer_sql::entity::blocks::Entity::find()
         .all(&context.db)
         .await
         .expect("Can't fetch blocks");
@@ -162,7 +155,7 @@ async fn sending_remote() {
 
     // There should have been two transfers:
     // 1. Before fee amount from user to Gateway;
-    // 2. Withdrawal fee from Gateway to the chain owner.
+    // 2. Withdrawal fee from Gateway to taxman.
     assert_that!(transfers).has_length(2);
 
     assert_that!(
@@ -177,8 +170,8 @@ async fn sending_remote() {
     ]);
 }
 
-#[tokio::test]
-async fn sending_remote_incorrect_route() {
+#[test]
+fn sending_remote_incorrect_route() {
     let (mut suite, mut accounts, _, contracts, ..) = setup_test(Default::default());
 
     const RECIPIENT: Addr32 =
@@ -203,7 +196,6 @@ async fn sending_remote_incorrect_route() {
             },
             coins! { usdc::DENOM.clone() => SEND_AMOUNT },
         )
-        .await
         .should_fail_with_error(StdError::data_not_found::<Addr>(
             REVERSE_ROUTES
                 .path((&usdc::DENOM, ETHEREUM_WETH_REMOTE))
@@ -211,53 +203,51 @@ async fn sending_remote_incorrect_route() {
         ));
 }
 
-#[tokio::test]
-async fn sending_remote_insufficient_reserve() {
+#[test]
+fn sending_remote_insufficient_reserve() {
     let (suite, mut accounts, _, contracts, validator_sets) = setup_test(Default::default());
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    const MOCK_ARBITRUM_RECIPIENT: Addr32 =
+    const MOCK_SOLANA_RECIPIENT: Addr32 =
         addr32!("0000000000000000000000000000000000000000000000000000000000000000");
 
-    const ARBITRUM_USDC_REMOTE: Remote = Remote::Warp {
-        domain: mock_arbitrum::DOMAIN,
-        contract: mock_arbitrum::USDC_WARP,
+    const SOLANA_USDC_REMOTE: Remote = Remote::Warp {
+        domain: mock_solana::DOMAIN,
+        contract: mock_solana::USDC_WARP,
     };
 
     const SEND_AMOUNT: u128 = 888_000_000;
 
-    const ARBITRUM_USDC_WITHDRAWAL_FEE: u128 = 10_000; // mock value copied from velox/testing/src/genesis.rs:336
+    const SOLANA_USDC_WITHDRAWAL_FEE: u128 = 10_000;
 
-    const SEND_AMOUNT_AFTER_FEE: u128 = SEND_AMOUNT - ARBITRUM_USDC_WITHDRAWAL_FEE;
+    const SEND_AMOUNT_AFTER_FEE: u128 = SEND_AMOUNT - SOLANA_USDC_WITHDRAWAL_FEE;
 
     // Right now, the entire reserve of USDC is from Ethereum. User1 attempts to
-    // withdraw to Arbitrum. Should fail.
+    // withdraw to Solana. Should fail.
     suite
         .execute(
             &mut accounts.user1,
             contracts.gateway,
             &gateway::ExecuteMsg::TransferRemote {
-                remote: ARBITRUM_USDC_REMOTE,
-                recipient: MOCK_ARBITRUM_RECIPIENT,
+                remote: SOLANA_USDC_REMOTE,
+                recipient: MOCK_SOLANA_RECIPIENT,
             },
             coins! { usdc::DENOM.clone() => SEND_AMOUNT },
         )
-        .await
         .should_fail_with_error(format!(
             "insufficient reserve! bridge: {}, remote: {:?}, reserve: {}, amount: {}",
-            contracts.warp, ARBITRUM_USDC_REMOTE, 0, SEND_AMOUNT_AFTER_FEE
+            contracts.warp, SOLANA_USDC_REMOTE, 0, SEND_AMOUNT_AFTER_FEE
         ));
 
     // User2 receives some USDC so that we have sufficient reserve.
     suite
         .receive_warp_transfer(
             &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
+            mock_solana::DOMAIN,
+            mock_solana::USDC_WARP,
             &accounts.user2,
             Uint128::new(SEND_AMOUNT + 100), // A little more than sufficient amount.
         )
-        .await
         .should_succeed();
 
     // User1 tries to withdraw again. Should succeed.
@@ -266,11 +256,10 @@ async fn sending_remote_insufficient_reserve() {
             &mut accounts.user1,
             contracts.gateway,
             &gateway::ExecuteMsg::TransferRemote {
-                remote: ARBITRUM_USDC_REMOTE,
-                recipient: MOCK_ARBITRUM_RECIPIENT,
+                remote: SOLANA_USDC_REMOTE,
+                recipient: MOCK_SOLANA_RECIPIENT,
             },
             coins! { usdc::DENOM.clone() => SEND_AMOUNT },
         )
-        .await
         .should_succeed();
 }

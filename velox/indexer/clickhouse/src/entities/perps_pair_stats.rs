@@ -218,7 +218,7 @@ impl PerpsPairStats {
             None => {
                 let app_ctx = ctx.data::<Context>()?;
                 Self::fetch_current_price(app_ctx.clickhouse_client(), &self.pair_id).await?
-            }
+            },
         };
 
         Ok(price.map(|p| {
@@ -237,7 +237,7 @@ impl PerpsPairStats {
             None => {
                 let app_ctx = ctx.data::<Context>()?;
                 Self::fetch_price_24h_ago(app_ctx.clickhouse_client(), &self.pair_id).await?
-            }
+            },
         };
 
         Ok(price.map(|p| {
@@ -256,7 +256,7 @@ impl PerpsPairStats {
             None => {
                 let app_ctx = ctx.data::<Context>()?;
                 Self::fetch_volume_24h(app_ctx.clickhouse_client(), &self.pair_id).await?
-            }
+            },
         };
 
         let bigint = BigInt::from(volume);
@@ -278,7 +278,7 @@ impl PerpsPairStats {
                     let cp = Self::fetch_current_price(client, &self.pair_id).await?;
                     let p24 = Self::fetch_price_24h_ago(client, &self.pair_id).await?;
                     (cp, p24)
-                }
+                },
             };
 
         let (current, old) = match (current_price, price_24h_ago) {

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@laffer/config/ts/browser.json",
+  "compilerOptions": {
+    "outDir": "build",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "build"],
+  "references": [
+    {
+      "path": "../bolt"
+    }
+  ]
+}

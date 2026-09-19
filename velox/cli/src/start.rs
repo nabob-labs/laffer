@@ -1,11 +1,24 @@
 use {
     crate::{
-        config::{Config, GrugConfig, MetricsHttpdConfig, PythLazerConfig, TendermintConfig},
+        config::{Config, BoltConfig, MetricsHttpdConfig, PythLazerConfig, TendermintConfig},
         home_directory::HomeDirectory,
         telemetry,
     },
     anyhow::anyhow,
     clap::Parser,
+    config_parser::parse_config,
+    velox_genesis::GenesisCodes,
+    velox_proposal_preparer::ProposalPreparer,
+    bolt_app::{
+        AbciService, App, Db, HaltReason, Indexer, NaiveProposalPreparer, NullIndexer,
+        SimpleCommitment,
+    },
+    bolt_db_disk::DiskDb,
+    bolt_httpd::context::Context as HttpdContext,
+    bolt_types::{GIT_COMMIT, HttpdConfig},
+    bolt_vm_rust::RustVm,
+    indexer_hooked::HookedIndexer,
+    indexer_httpd::TendermintRpcClient,
     metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle},
     std::sync::{Arc, atomic::AtomicBool},
     tokio::{
@@ -13,18 +26,6 @@ use {
         sync::watch,
     },
     tower_abci::v038::{Server, split},
-    velox_app::{
-        AbciService, App, Db, HaltReason, Indexer, NaiveProposalPreparer, NullIndexer,
-        SimpleCommitment,
-    },
-    velox_config_parser::parse_config,
-    velox_db_disk::DiskDb,
-    velox_genesis::GenesisCodes,
-    velox_indexer_hooked::HookedIndexer,
-    velox_indexer_httpd::{TendermintRpcClient, context::MinimalContext as HttpdContext},
-    velox_primitives::{GIT_COMMIT, HttpdConfig},
-    velox_proposal_preparer::ProposalPreparer,
-    velox_vm_rust::RustVm,
 };
 
 #[derive(Parser)]
@@ -58,7 +59,7 @@ impl StartCmd {
         // Open disk DB.
         let db = DiskDb::<SimpleCommitment>::open_with_priority(
             app_dir.data_dir(),
-            cfg.grug.priority_range.clone(),
+            cfg.bolt.priority_range.clone(),
         )?;
 
         // We need to call `RustVm::genesis_codes()` to properly build the contract wrappers.
@@ -67,16 +68,19 @@ impl StartCmd {
         // Create Rust VM.
         let vm = RustVm::new(
             // Below are parameters if we want to switch to `HybridVm`:
-            // cfg.grug.wasm_cache_capacity,
+            // cfg.bolt.wasm_cache_capacity,
             // [
             //     codes.account_factory.to_bytes().hash256(),
+            //     codes.account_multi.to_bytes().hash256(),
             //     codes.account_single.to_bytes().hash256(),
             //     codes.bank.to_bytes().hash256(),
+            //     codes.dex.to_bytes().hash256(),
             //     codes.gateway.to_bytes().hash256(),
             //     codes.hyperlane.ism.to_bytes().hash256(),
             //     codes.hyperlane.mailbox.to_bytes().hash256(),
             //     codes.hyperlane.va.to_bytes().hash256(),
             //     codes.oracle.to_bytes().hash256(),
+            //     codes.taxman.to_bytes().hash256(),
             //     codes.vesting.to_bytes().hash256(),
             //     codes.warp.to_bytes().hash256(),
             // ]
@@ -88,14 +92,14 @@ impl StartCmd {
             vm.clone(),
             NaiveProposalPreparer,
             NullIndexer,
-            cfg.grug.query_gas_limit,
+            cfg.bolt.query_gas_limit,
             None, // the `App` instance for use in httpd doesn't need the upgrade handler
             env!("CARGO_PKG_VERSION"),
         );
 
         let app = Arc::new(app);
 
-        let (hooked_indexer, velox_httpd_context) = self
+        let (hooked_indexer, _, velox_httpd_context) = self
             .setup_indexer_stack(app_dir, &cfg, app.clone(), &cfg.tendermint.rpc_addr)
             .await?;
 
@@ -126,7 +130,7 @@ impl StartCmd {
                     ),
                     Self::run_metrics_httpd_server(&cfg.metrics_httpd, metrics_handler),
                     self.run_with_indexer(
-                        cfg.grug,
+                        cfg.bolt,
                         cfg.tendermint,
                         cfg.pyth,
                         db,
@@ -137,7 +141,7 @@ impl StartCmd {
                     )
                 )
                 .map(|_| ())
-            }
+            },
             (true, true, false) => {
                 // Indexer and HTTP server enabled, metrics disabled
                 tokio::try_join!(
@@ -147,7 +151,7 @@ impl StartCmd {
                         httpd_shutdown_flag.clone()
                     ),
                     self.run_with_indexer(
-                        cfg.grug,
+                        cfg.bolt,
                         cfg.tendermint,
                         cfg.pyth,
                         db,
@@ -158,13 +162,13 @@ impl StartCmd {
                     )
                 )
                 .map(|_| ())
-            }
+            },
             (true, false, true) => {
                 // Indexer and metrics enabled, HTTP server disabled
                 tokio::try_join!(
                     Self::run_metrics_httpd_server(&cfg.metrics_httpd, metrics_handler),
                     self.run_with_indexer(
-                        cfg.grug,
+                        cfg.bolt,
                         cfg.tendermint,
                         cfg.pyth,
                         db,
@@ -175,11 +179,11 @@ impl StartCmd {
                     )
                 )
                 .map(|_| ())
-            }
+            },
             (true, false, false) => {
                 // Only indexer enabled
                 self.run_with_indexer(
-                    cfg.grug,
+                    cfg.bolt,
                     cfg.tendermint,
                     cfg.pyth,
                     db,
@@ -189,7 +193,7 @@ impl StartCmd {
                     vec![], // No HTTP server shutdown flags
                 )
                 .await
-            }
+            },
             (false, true, false) => {
                 // No indexer, but HTTP server enabled (minimal mode), metrics disabled
                 let httpd_context = HttpdContext::new(app);
@@ -201,7 +205,7 @@ impl StartCmd {
                         httpd_shutdown_flag.clone()
                     ),
                     self.run_with_indexer(
-                        cfg.grug,
+                        cfg.bolt,
                         cfg.tendermint,
                         cfg.pyth,
                         db,
@@ -212,7 +216,7 @@ impl StartCmd {
                     )
                 )
                 .map(|_| ())
-            }
+            },
             (false, true, true) => {
                 // No indexer, but HTTP server enabled (minimal mode), metrics enabled
                 let httpd_context = HttpdContext::new(app);
@@ -224,7 +228,7 @@ impl StartCmd {
                         httpd_shutdown_flag.clone()
                     ),
                     self.run_with_indexer(
-                        cfg.grug,
+                        cfg.bolt,
                         cfg.tendermint,
                         cfg.pyth,
                         db,
@@ -236,11 +240,11 @@ impl StartCmd {
                     Self::run_metrics_httpd_server(&cfg.metrics_httpd, metrics_handler)
                 )
                 .map(|_| ())
-            }
+            },
             (false, false, _) => {
                 // No indexer, no HTTP server
                 self.run_with_indexer(
-                    cfg.grug,
+                    cfg.bolt,
                     cfg.tendermint,
                     cfg.pyth,
                     db,
@@ -250,7 +254,7 @@ impl StartCmd {
                     vec![], // No HTTP server shutdown flags
                 )
                 .await
-            }
+            },
         };
 
         // Always drain the indexer's in-flight post-indexing tasks before
@@ -269,15 +273,31 @@ impl StartCmd {
         cfg: &Config,
         app: Arc<App<DiskDb<SimpleCommitment>, RustVm, NaiveProposalPreparer, NullIndexer>>,
         tendermint_rpc_addr: &str,
-    ) -> anyhow::Result<(HookedIndexer, velox_indexer_httpd::context::FullContext)> {
-        let sql_indexer = velox_indexer_sql::IndexerBuilder::default()
+    ) -> anyhow::Result<(
+        HookedIndexer,
+        indexer_httpd::context::Context,
+        velox_httpd::context::Context,
+    )> {
+        let mut hooked_indexer = HookedIndexer::new();
+
+        let sql_indexer = indexer_sql::IndexerBuilder::default()
             .with_database_url(&cfg.indexer.database.url)
             .with_database_max_connections(cfg.indexer.database.max_connections)
             .with_sqlx_pubsub()
             .build()
             .await
             .map_err(|err| anyhow!("failed to build indexer: {err:?}"))?;
-        let sql_context = sql_indexer.context.clone();
+        let indexer_context = sql_indexer.context.clone();
+
+        // Create a separate context for velox indexer (shares DB but has independent pubsub)
+        let velox_context: velox_indexer_sql::context::Context = sql_indexer
+            .context
+            .with_separate_pubsub()
+            .await
+            .map_err(|e| anyhow!("Failed to create separate context for velox indexer: {e}"))?
+            .into();
+
+        let velox_indexer = velox_indexer_sql::indexer::Indexer::new(velox_context.clone());
 
         let clickhouse_context = velox_indexer_clickhouse::context::Context::new(
             cfg.indexer.clickhouse.url.clone(),
@@ -288,19 +308,28 @@ impl StartCmd {
 
         let clickhouse_indexer = velox_indexer_clickhouse::Indexer::new(clickhouse_context.clone());
 
-        let mut indexer_cache = velox_indexer_cache::Cache::new_with_dir(app_dir.indexer_dir());
+        // Create cache indexer (RuntimeHandler no longer needed)
+        let mut indexer_cache = indexer_cache::Cache::new_with_dir(app_dir.indexer_dir());
+        // Pass S3 config to the cache indexer context
         indexer_cache.context.s3 = cfg.indexer.s3.clone();
         let indexer_cache_context = indexer_cache.context.clone();
 
-        let mut hooked_indexer = HookedIndexer::new(indexer_cache, sql_indexer, clickhouse_indexer);
+        hooked_indexer.add_indexer(indexer_cache).await?;
+        hooked_indexer.add_indexer(sql_indexer).await?;
+        hooked_indexer.add_indexer(velox_indexer).await?;
+        hooked_indexer.add_indexer(clickhouse_indexer).await?;
 
-        let velox_httpd_context = velox_indexer_httpd::context::FullContext::new(
+        let indexer_httpd_context = indexer_httpd::context::Context::new(
             indexer_cache_context,
-            sql_context,
-            clickhouse_context,
-            hooked_indexer.stream.context(),
+            indexer_context,
             app.clone(),
             Arc::new(TendermintRpcClient::new(tendermint_rpc_addr)?),
+        );
+
+        let velox_httpd_context = velox_httpd::context::Context::new(
+            indexer_httpd_context.clone(),
+            clickhouse_context.clone(),
+            velox_context,
             cfg.httpd.static_files_path.clone(),
         );
 
@@ -313,7 +342,7 @@ impl StartCmd {
             .await
             .map_err(|e| anyhow!("Failed to start indexer: {e}"))?;
 
-        Ok((hooked_indexer, velox_httpd_context))
+        Ok((hooked_indexer, indexer_httpd_context, velox_httpd_context))
     }
 
     /// Run the minimal HTTP server (without indexer features)
@@ -323,12 +352,18 @@ impl StartCmd {
         context: HttpdContext,
         shutdown_flag: Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
-        velox_indexer_httpd::server::run_minimal_server(cfg, context, shutdown_flag)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to run minimal HTTP server: {err:?}");
-                anyhow::anyhow!("Failed to run minimal HTTP server: {err:?}")
-            })
+        bolt_httpd::server::run_server(
+            cfg,
+            context,
+            bolt_httpd::server::config_app,
+            bolt_httpd::graphql::build_schema,
+            shutdown_flag,
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to run minimal HTTP server: {err:?}");
+            anyhow::anyhow!("Failed to run minimal HTTP server: {err:?}")
+        })
     }
 
     /// Run the full-featured HTTP server (with indexer features)
@@ -337,13 +372,13 @@ impl StartCmd {
     /// The HTTP port is bound immediately; the ClickHouse and perps trade
     /// cache preloads run concurrently in a background task. `/up` does not
     /// touch any of those caches (it only reads
-    /// `velox_app.last_finalized_block()` and a Postgres blocks query), and
+    /// `bolt_app.last_finalized_block()` and a Postgres blocks query), and
     /// the GraphQL handlers that do read from them already fall through to
     /// ClickHouse / return empty state on a cache miss, so handlers reading
     /// during warm-up see the same state as a freshly indexed node.
     async fn run_velox_httpd_server(
         cfg: &HttpdConfig,
-        velox_httpd_context: velox_indexer_httpd::context::FullContext,
+        velox_httpd_context: velox_httpd::context::Context,
         shutdown_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> anyhow::Result<()> {
         tracing::info!(
@@ -366,7 +401,7 @@ impl StartCmd {
             // The two preloads hit different databases (ClickHouse and
             // Postgres), so run them concurrently to halve wall-time.
             let (clickhouse_result, perps_trade_result) = tokio::join!(
-                warmup_ctx.clickhouse_context.start_cache(),
+                warmup_ctx.indexer_clickhouse_context.start_cache(),
                 warmup_ctx.start_perps_trade_cache(),
             );
 
@@ -394,7 +429,7 @@ impl StartCmd {
             );
         });
 
-        velox_indexer_httpd::server::run_server(cfg, velox_httpd_context, shutdown_flag, None)
+        velox_httpd::server::run_server(cfg, velox_httpd_context, shutdown_flag, None)
             .await
             .map_err(|err| {
                 tracing::error!("Failed to run full-featured HTTP server: {err:?}");
@@ -407,7 +442,7 @@ impl StartCmd {
         cfg: &MetricsHttpdConfig,
         metrics_handler: PrometheusHandle,
     ) -> anyhow::Result<()> {
-        velox_indexer_metrics::run_metrics_server(&cfg.ip, cfg.port, metrics_handler)
+        indexer_httpd::server::run_metrics_server(&cfg.ip, cfg.port, metrics_handler)
             .await
             .map_err(|err| {
                 tracing::error!("Failed to run metrics HTTP server: {err:?}");
@@ -422,7 +457,7 @@ impl StartCmd {
     ///   https://github.com/penumbra-zone/penumbra/blob/dafaa19109fd06b67cb294a097bad803ade4ac7c/crates/core/app/src/server.rs#L47-L73
     async fn run_with_indexer<ID>(
         self,
-        grug_cfg: GrugConfig,
+        bolt_cfg: BoltConfig,
         tendermint_cfg: TendermintConfig,
         pyth_lazer_cfg: PythLazerConfig,
         db: DiskDb<SimpleCommitment>,
@@ -435,7 +470,7 @@ impl StartCmd {
         ID: Indexer + Send + Sync + 'static,
     {
         // Channel used by the app to request a graceful shutdown from inside
-        // `finalize_block` (see `velox_app::HaltReason`). Initial value is
+        // `finalize_block` (see `bolt_app::HaltReason`). Initial value is
         // `None`; a `Some(reason)` means the app has requested a halt.
         let (halt_tx, mut halt_rx) = watch::channel::<Option<HaltReason>>(None);
         let halt_tx = Arc::new(halt_tx);
@@ -450,12 +485,11 @@ impl StartCmd {
                 vm,
                 ProposalPreparer::new(pyth_lazer_cfg.endpoints, pyth_lazer_cfg.access_token),
                 indexer,
-                grug_cfg.query_gas_limit,
+                bolt_cfg.query_gas_limit,
                 Some(velox_upgrade::do_upgrade), // Important: set the upgrade handler.
                 env!("CARGO_PKG_VERSION"),
             )
-            .with_shutdown_trigger(halt_tx)
-            .with_retain_recent_blocks(tendermint_cfg.retain_recent_blocks),
+            .with_shutdown_trigger(halt_tx),
         );
 
         let (consensus, mempool, snapshot, info) = split::service(service, 1);

@@ -1,0 +1,56 @@
+export const Modals = {
+  AddKey: "add-key",
+  RemoveKey: "remove-key",
+  QRConnect: "qr-connect",
+  ConfirmSend: "confirm-send",
+  ConfirmAccount: "confirm-account",
+  SignWithDesktop: "sign-with-desktop",
+  SignWithDesktopFromNativeCamera: "sign-with-desktop-from-native-camera",
+  ConfirmSwap: "confirm-swap",
+  RenewSession: "renew-session",
+  ProTradeCloseAll: "pro-trade-close-all",
+  ProTradeCloseOrder: "pro-trade-close-order",
+  ProTradeLimitClose: "pro-trade-limit-close",
+  ProSwapMarketClose: "pro-swap-market-close",
+  ProSwapEditTPSL: "pro-edit-tpsl",
+  ProSwapEditedSL: "pro-edited-sl",
+  PoolAddLiquidity: "pool-add-liquidity",
+  PoolWithdrawLiquidity: "pool-withdraw-liquidity",
+  ActivityTransfer: "activity-transfer",
+  ActivityConvert: "activity-convert",
+  ActivitySpotOrder: "activity-spot-order",
+  SignupReminder: "signup-reminder",
+  WalletSelector: "wallet-selector",
+  Authenticate: "authenticate",
+  EditUsername: "edit-username",
+  BridgeWithdraw: "bridge-withdraw",
+  BridgeDeposit: "bridge-deposit",
+  AddressWarning: "address-warning",
+  EditCommissionRate: "edit-commission-rate",
+  PerpsCloseOrder: "perps-close-order",
+  PerpsCloseAll: "perps-close-all",
+  PerpsClosePosition: "perps-close-position",
+  ActivateAccount: "activate-account",
+  VaultAddLiquidity: "vault-add-liquidity",
+  VaultWithdrawLiquidity: "vault-withdraw-liquidity",
+  VaultWithdrawLiquidityWithPenalty: "vault-withdraw-liquidity-with-penalty",
+  PerpsMarginMode: "perps-margin-mode",
+  PerpsAdjustLeverage: "perps-adjust-leverage",
+  FeeTiers: "fee-tiers",
+  DestinationWallet: "destination-wallet",
+  AdjustSlippage: "adjust-slippage",
+  PnlShare: "pnl-share",
+  PointsShare: "points-share",
+};
+
+export type ModalRef = {
+  triggerOnClose: () => void;
+};
+
+export type ModalDefinition = {
+  component: React.LazyExoticComponent<React.ForwardRefExoticComponent<any>>;
+  options?: {
+    header?: string;
+    disableClosing?: boolean;
+  };
+};

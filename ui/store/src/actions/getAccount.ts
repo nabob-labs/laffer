@@ -1,0 +1,216 @@
+import { changeAccount as changeAccountAction } from "./changeAccount.js";
+import { refreshAccounts as refreshAccountsAction } from "./refreshAccounts.js";
+import { refreshUserStatus as refreshUserStatusAction } from "./refreshUserStatus.js";
+
+import type { Account, Address, KeyHash, Username, UserStatus } from "@laffer/velox/types";
+import type { Chain, ChainId } from "@laffer/velox/types";
+
+import type { Connector } from "../types/connector.js";
+import type { Config } from "../types/store.js";
+
+export type GetAccountReturnType =
+  | {
+      username: Username;
+      userIndex: number;
+      keyHash: KeyHash;
+      account: Account;
+      accounts: readonly Account[];
+      chain: Chain | undefined;
+      chainId: ChainId;
+      connector: Connector;
+      userStatus: UserStatus | undefined;
+      isConnected: true;
+      isConnecting: false;
+      isUserActive: boolean;
+      isDisconnected: false;
+      isReconnecting: false;
+      status: "connected";
+      changeAccount: (address: Address) => void;
+      refreshAccounts: () => Promise<void>;
+      refreshUserStatus: () => void;
+    }
+  | {
+      username: Username | undefined;
+      userIndex: number | undefined;
+      keyHash: KeyHash | undefined;
+      account: Account | undefined;
+      accounts: readonly Account[] | undefined;
+      chain: Chain | undefined;
+      chainId: ChainId | undefined;
+      connector: Connector | undefined;
+      userStatus: UserStatus | undefined;
+      isConnected: boolean;
+      isUserActive: boolean;
+      isConnecting: false;
+      isDisconnected: false;
+      isReconnecting: true;
+      status: "reconnecting";
+      changeAccount: undefined;
+      refreshAccounts: undefined;
+      refreshUserStatus: undefined;
+    }
+  | {
+      username: Username | undefined;
+      userIndex: number | undefined;
+      keyHash: KeyHash | undefined;
+      account: Account | undefined;
+      accounts: readonly Account[] | undefined;
+      chain: Chain | undefined;
+      chainId: ChainId | undefined;
+      connector: Connector | undefined;
+      userStatus: UserStatus | undefined;
+      isConnected: false;
+      isUserActive: boolean;
+      isReconnecting: false;
+      isConnecting: true;
+      isDisconnected: false;
+      status: "connecting";
+      changeAccount: undefined;
+      refreshAccounts: undefined;
+      refreshUserStatus: undefined;
+    }
+  | {
+      username: undefined;
+      userIndex: undefined;
+      keyHash: undefined;
+      account: undefined;
+      accounts: undefined;
+      chain: undefined;
+      chainId: undefined;
+      connector: undefined;
+      userStatus: UserStatus | undefined;
+      isConnected: false;
+      isUserActive: boolean;
+      isReconnecting: false;
+      isConnecting: false;
+      isDisconnected: true;
+      status: "disconnected";
+      changeAccount: undefined;
+      refreshAccounts: undefined;
+      refreshUserStatus: undefined;
+    };
+
+const disconnected = {
+  username: undefined,
+  userIndex: undefined,
+  keyHash: undefined,
+  account: undefined,
+  accounts: undefined,
+  chain: undefined,
+  chainId: undefined,
+  connector: undefined,
+  userStatus: undefined,
+  isUserActive: false,
+  isConnected: false,
+  isConnecting: false,
+  isDisconnected: true,
+  isReconnecting: false,
+  status: "disconnected",
+  changeAccount: undefined,
+  refreshAccounts: undefined,
+  refreshUserStatus: undefined,
+} as const;
+
+export function getAccount<config extends Config = Config>(config: config): GetAccountReturnType {
+  const { chainId, connectors, status } = config.state;
+  const userStatus = config.state.user?.status;
+  const connectorUId = config.state.current!;
+  const connection = connectors.get(connectorUId);
+
+  if (!connection) {
+    return disconnected;
+  }
+
+  const chain = config.chain;
+
+  const changeAccount = (address: Address) => {
+    changeAccountAction(config, { address, connectorUId: connectorUId! });
+  };
+
+  const refreshUserStatus = () => {
+    refreshUserStatusAction(config, { connectorUId: connectorUId! });
+  };
+
+  const refreshAccounts = async () => {
+    if (config.state.user?.index === undefined) return;
+    refreshAccountsAction(config, {
+      connectorUId,
+      userIndex: config.state.user.index,
+    });
+  };
+
+  const { accounts, connector, account: acc, keyHash } = connection;
+  const user = config.state.user;
+  const username = user?.username;
+  const userIndex = user?.index;
+  const isUserActive = userStatus === "active";
+
+  const account = acc as Account;
+  switch (status) {
+    case "connected":
+      return {
+        username: username as string,
+        userIndex: userIndex as number,
+        keyHash,
+        account,
+        accounts,
+        chain,
+        chainId,
+        connector,
+        userStatus,
+        isUserActive,
+        isConnected: true,
+        isConnecting: false,
+        isDisconnected: false,
+        isReconnecting: false,
+        status,
+        changeAccount,
+        refreshAccounts,
+        refreshUserStatus,
+      };
+    case "reconnecting":
+      return {
+        username,
+        userIndex,
+        keyHash,
+        account,
+        accounts,
+        chain,
+        chainId,
+        connector,
+        userStatus,
+        isUserActive,
+        isConnected: false,
+        isConnecting: false,
+        isDisconnected: false,
+        isReconnecting: true,
+        status,
+        changeAccount: undefined,
+        refreshAccounts: undefined,
+        refreshUserStatus: undefined,
+      };
+    case "connecting":
+      return {
+        username,
+        userIndex,
+        keyHash,
+        account,
+        accounts,
+        chain,
+        chainId,
+        connector,
+        userStatus,
+        isUserActive,
+        isConnected: false,
+        isConnecting: true,
+        isDisconnected: false,
+        isReconnecting: false,
+        status,
+        changeAccount: undefined,
+        refreshAccounts: undefined,
+        refreshUserStatus: undefined,
+      };
+    case "disconnected":
+      return disconnected;
+  }
+}

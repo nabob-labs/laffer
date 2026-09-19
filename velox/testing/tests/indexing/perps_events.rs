@@ -1,21 +1,23 @@
 use {
     assertor::*,
-    sea_orm::EntityTrait,
-    velox_app::Indexer,
     velox_indexer_sql::entity,
     velox_testing::{
-        TestOption, create_perps_fill, pair_id, setup_perps_env, setup_test_naive_with_indexer,
+        TestOption,
+        perps::{create_perps_fill, pair_id, setup_perps_env},
+        setup_test_with_indexer,
     },
+    bolt_app::Indexer,
+    sea_orm::EntityTrait,
 };
 
 #[tokio::test(flavor = "multi_thread")]
 async fn index_perps_events() -> anyhow::Result<()> {
-    let (mut suite, mut accounts, _, contracts, _, velox_context, _, _, _db_guard) =
-        setup_test_naive_with_indexer(TestOption::default()).await;
+    let (mut suite, mut accounts, _, contracts, _, _, velox_context, _, _db_guard) =
+        setup_test_with_indexer(TestOption::default()).await;
 
-    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000).await;
+    setup_perps_env(&mut suite, &mut accounts, &contracts, 2_000, 100_000);
 
-    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 5).await;
+    create_perps_fill(&mut suite, &mut accounts, &contracts, &pair_id(), 2_000, 5);
 
     suite.app.indexer.wait_for_finish().await?;
 

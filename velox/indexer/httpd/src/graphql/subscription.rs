@@ -1,34 +1,16 @@
 use {
-    account::AccountSubscription, async_graphql::*, block::BlockSubscription,
-    clickhouse::ClickhouseSubscription, core::CoreSubscription, event::EventSubscription,
-    message::MessageSubscription, perps_trade::PerpsTradeSubscription,
-    transaction::TransactionSubscription, transfer::TransferSubscription,
+    account::AccountSubscription, async_graphql::MergedSubscription,
+    velox_indexer_clickhouse::httpd::graphql::subscription::ClickhouseSubscription,
+    indexer_httpd::graphql::subscription::IndexerSubscription, perps_trade::PerpsTradeSubscription,
+    transfer::TransferSubscription,
 };
 
 pub mod account;
-pub mod block;
-pub mod clickhouse;
-pub mod core;
-pub mod event;
-pub mod message;
 pub mod perps_trade;
-pub mod transaction;
 pub mod transfer;
 
-pub const MAX_PAST_BLOCKS: usize = 100;
-
 #[derive(MergedSubscription, Default)]
-pub struct IndexerSubscription(
-    BlockSubscription,
-    TransactionSubscription,
-    MessageSubscription,
-    EventSubscription,
-    CoreSubscription,
-);
-
-#[derive(MergedSubscription, Default)]
-#[graphql(name = "Subscription")]
-pub struct FullSubscription(
+pub struct Subscription(
     IndexerSubscription,
     ClickhouseSubscription,
     AccountSubscription,

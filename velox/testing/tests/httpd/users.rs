@@ -1,12 +1,13 @@
 use {
+    super::call_graphql_query,
     assertor::*,
-    graphql_client::GraphQLQuery,
-    velox_app::Indexer,
-    velox_indexer_graphql_types::{User, Users, user, users},
+    velox_graphql_types::{User, Users, user, users},
     velox_testing::{
-        HyperlaneTestSuite, TestOption, add_user_public_key, call_graphql_query_with_context,
-        create_user_and_account, setup_test_with_indexer,
+        HyperlaneTestSuite, TestOption, add_user_public_key, create_user_and_account,
+        setup_test_with_indexer,
     },
+    graphql_client::GraphQLQuery,
+    bolt_app::Indexer,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -17,14 +18,14 @@ async fn query_user() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let user = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -33,7 +34,7 @@ async fn query_user() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response = call_graphql_query_with_context::<_, users::ResponseData>(
+                let response = call_graphql_query::<_, users::ResponseData>(
                     velox_httpd_context,
                     Users::build_query(users::Variables::default()),
                 )
@@ -67,17 +68,16 @@ async fn query_single_user_multiple_public_keys() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let mut test_account =
-        create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let mut test_account = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
-    let (pk, key_hash) = add_user_public_key(&mut suite, &contracts, &mut test_account).await;
+    let (pk, key_hash) = add_user_public_key(&mut suite, &contracts, &mut test_account);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -86,7 +86,7 @@ async fn query_single_user_multiple_public_keys() -> anyhow::Result<()> {
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response = call_graphql_query_with_context::<_, users::ResponseData>(
+                let response = call_graphql_query::<_, users::ResponseData>(
                     velox_httpd_context,
                     Users::build_query(users::Variables::default()),
                 )
@@ -130,14 +130,14 @@ async fn query_public_keys_by_user_index() -> anyhow::Result<()> {
         codes,
         contracts,
         validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
-    let test_account = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes).await;
+    let test_account = create_user_and_account(&mut suite, &mut accounts, &contracts, &codes);
 
     suite.app.indexer.wait_for_finish().await?;
 
@@ -150,7 +150,7 @@ async fn query_public_keys_by_user_index() -> anyhow::Result<()> {
                     user_index: test_account.user_index() as i64,
                 };
 
-                let response = call_graphql_query_with_context::<_, user::ResponseData>(
+                let response = call_graphql_query::<_, user::ResponseData>(
                     velox_httpd_context,
                     User::build_query(variables),
                 )
@@ -182,8 +182,8 @@ async fn query_users_rejects_conflicting_pagination_args() -> anyhow::Result<()>
         _codes,
         _contracts,
         _validator_sets,
-        velox_httpd_context,
         _,
+        velox_httpd_context,
         _,
         _db_guard,
     ) = setup_test_with_indexer(TestOption::default()).await;
@@ -193,7 +193,7 @@ async fn query_users_rejects_conflicting_pagination_args() -> anyhow::Result<()>
     local_set
         .run_until(async {
             tokio::task::spawn_local(async move {
-                let response = call_graphql_query_with_context::<_, users::ResponseData>(
+                let response = call_graphql_query::<_, users::ResponseData>(
                     velox_httpd_context,
                     Users::build_query(users::Variables {
                         first: Some(1),

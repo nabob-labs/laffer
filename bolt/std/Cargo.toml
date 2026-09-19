@@ -1,0 +1,32 @@
+[package]
+authors       = { workspace = true }
+categories    = { workspace = true }
+documentation = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+name          = "bolt"
+repository    = { workspace = true }
+rust-version  = { workspace = true }
+version       = { workspace = true }
+
+[features]
+chrono  = ["bolt-types/chrono"]
+metrics = ["bolt-types/metrics"]
+
+[dependencies]
+borsh        = { workspace = true, features = ["de_strict_order", "derive"] }
+bolt-macros  = { workspace = true }
+bolt-math    = { workspace = true }
+bolt-storage = { workspace = true }
+bolt-types   = { workspace = true }
+serde        = { workspace = true, features = ["derive"] }
+serde_json   = { workspace = true }
+serde_with   = { workspace = true }
+
+# The FFI crate is only included when building for WebAssembly.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bolt-ffi = { workspace = true }
+
+# The testing crate is only included when _not_ building for WebAssembly.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bolt-testing = { workspace = true }

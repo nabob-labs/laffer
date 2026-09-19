@@ -1,0 +1,4 @@
+@import "@laffer/foundation/tailwind/global.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

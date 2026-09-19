@@ -1,22 +1,22 @@
 use {
-    std::collections::BTreeSet,
-    velox_primitives::{
-        Addressable, CheckedContractEvent, Coins, Denom, JsonDeExt, LengthBounded, Part,
-        QuerierExt, ResultExt, SearchEvent, addr, btree_map, coins,
-    },
-    velox_testing::{BalanceChange, setup_test_naive},
+    velox_testing::setup_test_naive,
     velox_types::{
         bank::{
             self, OrphanedTransferResponseItem, QueryOrphanedTransfersByRecipientRequest,
             QueryOrphanedTransfersBySenderRequest, QueryOrphanedTransfersRequest, Received, Sent,
             TransferOrphaned,
         },
-        constants::{eth, usdc, velox},
+        constants::{velox, eth, usdc},
     },
+    bolt::{
+        Addressable, BalanceChange, CheckedContractEvent, Coins, Denom, JsonDeExt, LengthBounded,
+        Part, QuerierExt, ResultExt, SearchEvent, addr, btree_map, coins,
+    },
+    std::collections::BTreeSet,
 };
 
-#[tokio::test]
-async fn batch_transfer() {
+#[test]
+fn batch_transfer() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     // Create two non-existent recipient addresses.
@@ -34,25 +34,21 @@ async fn batch_transfer() {
 
     // Owner makes a multi-send to users 1, 2, and the non-existent recipient.
     let events = suite
-        .batch_transfer(
-            &mut accounts.owner,
-            btree_map! {
-                accounts.user1.address() => coins! {
-                    velox::DENOM.clone() => 100,
-                },
-                accounts.user2.address() => coins! {
-                    velox::DENOM.clone() => 200,
-                    usdc::DENOM.clone() => 300,
-                },
-                dead1 => coins! {
-                    velox::DENOM.clone() => 400,
-                },
-                dead2 => coins! {
-                    usdc::DENOM.clone() => 500,
-                },
+        .batch_transfer(&mut accounts.owner, btree_map! {
+            accounts.user1.address() => coins! {
+                velox::DENOM.clone() => 100,
             },
-        )
-        .await
+            accounts.user2.address() => coins! {
+                velox::DENOM.clone() => 200,
+                usdc::DENOM.clone() => 300,
+            },
+            dead1 => coins! {
+                velox::DENOM.clone() => 400,
+            },
+            dead2 => coins! {
+                usdc::DENOM.clone() => 500,
+            },
+        })
         .should_succeed()
         .events;
 
@@ -69,40 +65,37 @@ async fn batch_transfer() {
             .map(|e| e.event.data.deserialize_json::<Sent>().unwrap())
             .collect::<Vec<_>>();
 
-        assert!(vectors_have_same_elements(
-            sends,
-            vec![
-                Sent {
-                    user: accounts.owner.address(),
-                    to: accounts.user1.address(),
-                    coins: coins! {
-                        velox::DENOM.clone() => 100,
-                    },
+        assert!(vectors_have_same_elements(sends, vec![
+            Sent {
+                user: accounts.owner.address(),
+                to: accounts.user1.address(),
+                coins: coins! {
+                    velox::DENOM.clone() => 100,
                 },
-                Sent {
-                    user: accounts.owner.address(),
-                    to: accounts.user2.address(),
-                    coins: coins! {
-                        velox::DENOM.clone() => 200,
-                        usdc::DENOM.clone() => 300,
-                    },
+            },
+            Sent {
+                user: accounts.owner.address(),
+                to: accounts.user2.address(),
+                coins: coins! {
+                    velox::DENOM.clone() => 200,
+                    usdc::DENOM.clone() => 300,
                 },
-                Sent {
-                    user: accounts.owner.address(),
-                    to: contracts.bank, // The orphaned transfer goes to the bank.
-                    coins: coins! {
-                        velox::DENOM.clone() => 400,
-                    },
+            },
+            Sent {
+                user: accounts.owner.address(),
+                to: contracts.bank, // The orphaned transfer goes to the bank.
+                coins: coins! {
+                    velox::DENOM.clone() => 400,
                 },
-                Sent {
-                    user: accounts.owner.address(),
-                    to: contracts.bank, // The orphaned transfer goes to the bank.
-                    coins: coins! {
-                        usdc::DENOM.clone() => 500,
-                    },
+            },
+            Sent {
+                user: accounts.owner.address(),
+                to: contracts.bank, // The orphaned transfer goes to the bank.
+                coins: coins! {
+                    usdc::DENOM.clone() => 500,
                 },
-            ]
-        ));
+            },
+        ]));
     }
 
     // `received` events:
@@ -117,40 +110,37 @@ async fn batch_transfer() {
             .map(|e| e.event.data.deserialize_json::<Received>().unwrap())
             .collect::<Vec<_>>();
 
-        assert!(vectors_have_same_elements(
-            receives,
-            vec![
-                Received {
-                    user: accounts.user1.address(),
-                    from: accounts.owner.address(),
-                    coins: coins! {
-                        velox::DENOM.clone() => 100,
-                    },
+        assert!(vectors_have_same_elements(receives, vec![
+            Received {
+                user: accounts.user1.address(),
+                from: accounts.owner.address(),
+                coins: coins! {
+                    velox::DENOM.clone() => 100,
                 },
-                Received {
-                    user: accounts.user2.address(),
-                    from: accounts.owner.address(),
-                    coins: coins! {
-                        velox::DENOM.clone() => 200,
-                        usdc::DENOM.clone() => 300,
-                    },
+            },
+            Received {
+                user: accounts.user2.address(),
+                from: accounts.owner.address(),
+                coins: coins! {
+                    velox::DENOM.clone() => 200,
+                    usdc::DENOM.clone() => 300,
                 },
-                Received {
-                    user: contracts.bank, // The orphaned transfer goes to the bank.
-                    from: accounts.owner.address(),
-                    coins: coins! {
-                        velox::DENOM.clone() => 400,
-                    },
+            },
+            Received {
+                user: contracts.bank, // The orphaned transfer goes to the bank.
+                from: accounts.owner.address(),
+                coins: coins! {
+                    velox::DENOM.clone() => 400,
                 },
-                Received {
-                    user: contracts.bank, // The orphaned transfer goes to the bank.
-                    from: accounts.owner.address(),
-                    coins: coins! {
-                        usdc::DENOM.clone() => 500,
-                    },
+            },
+            Received {
+                user: contracts.bank, // The orphaned transfer goes to the bank.
+                from: accounts.owner.address(),
+                coins: coins! {
+                    usdc::DENOM.clone() => 500,
                 },
-            ]
-        ));
+            },
+        ]));
     }
 
     // `transfer_orphaned` events:
@@ -164,61 +154,46 @@ async fn batch_transfer() {
             .map(|e| e.event.data.deserialize_json::<TransferOrphaned>().unwrap())
             .collect::<Vec<_>>();
 
-        assert!(vectors_have_same_elements(
-            orphans,
-            vec![
-                TransferOrphaned {
-                    from: accounts.owner.address(),
-                    to: dead1,
-                    coins: coins! {
-                        velox::DENOM.clone() => 400,
-                    },
+        assert!(vectors_have_same_elements(orphans, vec![
+            TransferOrphaned {
+                from: accounts.owner.address(),
+                to: dead1,
+                coins: coins! {
+                    velox::DENOM.clone() => 400,
                 },
-                TransferOrphaned {
-                    from: accounts.owner.address(),
-                    to: dead2,
-                    coins: coins! {
-                        usdc::DENOM.clone() => 500,
-                    },
+            },
+            TransferOrphaned {
+                from: accounts.owner.address(),
+                to: dead2,
+                coins: coins! {
+                    usdc::DENOM.clone() => 500,
                 },
-            ]
-        ));
+            },
+        ]));
     }
 
     // Check the balance changes.
     {
-        suite.balances().should_change(
-            &accounts.owner,
-            btree_map! {
-                velox::DENOM.clone() => BalanceChange::Decreased(700),
-                usdc::DENOM.clone() => BalanceChange::Decreased(800),
-            },
-        );
+        suite.balances().should_change(&accounts.owner, btree_map! {
+            velox::DENOM.clone() => BalanceChange::Decreased(700),
+            usdc::DENOM.clone() => BalanceChange::Decreased(800),
+        });
 
-        suite.balances().should_change(
-            &accounts.user1,
-            btree_map! {
-                velox::DENOM.clone() => BalanceChange::Increased(100),
-            },
-        );
+        suite.balances().should_change(&accounts.user1, btree_map! {
+            velox::DENOM.clone() => BalanceChange::Increased(100),
+        });
 
-        suite.balances().should_change(
-            &accounts.user2,
-            btree_map! {
-                velox::DENOM.clone() => BalanceChange::Increased(200),
-                usdc::DENOM.clone() => BalanceChange::Increased(300),
-            },
-        );
+        suite.balances().should_change(&accounts.user2, btree_map! {
+            velox::DENOM.clone() => BalanceChange::Increased(200),
+            usdc::DENOM.clone() => BalanceChange::Increased(300),
+        });
 
         // The token that are supposed to go to the non-existing accounts should
         // have been withheld in the bank contract as orphaned transfers.
-        suite.balances().should_change(
-            &contracts.bank,
-            btree_map! {
-                velox::DENOM.clone() => BalanceChange::Increased(400),
-                usdc::DENOM.clone() => BalanceChange::Increased(500),
-            },
-        );
+        suite.balances().should_change(&contracts.bank, btree_map! {
+            velox::DENOM.clone() => BalanceChange::Increased(400),
+            usdc::DENOM.clone() => BalanceChange::Increased(500),
+        });
 
         // The non-existing accounts should have no balance.
         suite.balances().should_change(&dead1, btree_map! {});
@@ -228,13 +203,10 @@ async fn batch_transfer() {
     // The orphaned transfers should have been recorded.
     {
         suite
-            .query_wasm_smart(
-                contracts.bank,
-                QueryOrphanedTransfersRequest {
-                    start_after: None,
-                    limit: None,
-                },
-            )
+            .query_wasm_smart(contracts.bank, QueryOrphanedTransfersRequest {
+                start_after: None,
+                limit: None,
+            })
             .should_succeed_and_equal(vec![
                 OrphanedTransferResponseItem {
                     sender: accounts.owner.address(),
@@ -249,41 +221,32 @@ async fn batch_transfer() {
             ]);
 
         suite
-            .query_wasm_smart(
-                contracts.bank,
-                QueryOrphanedTransfersBySenderRequest {
-                    sender: accounts.owner.address(),
-                    start_after: None,
-                    limit: None,
-                },
-            )
+            .query_wasm_smart(contracts.bank, QueryOrphanedTransfersBySenderRequest {
+                sender: accounts.owner.address(),
+                start_after: None,
+                limit: None,
+            })
             .should_succeed_and_equal(btree_map! {
                 dead1 => coins! { velox::DENOM.clone() => 400 },
                 dead2 => coins! { usdc::DENOM.clone() => 500 },
             });
 
         suite
-            .query_wasm_smart(
-                contracts.bank,
-                QueryOrphanedTransfersByRecipientRequest {
-                    recipient: dead1,
-                    start_after: None,
-                    limit: None,
-                },
-            )
+            .query_wasm_smart(contracts.bank, QueryOrphanedTransfersByRecipientRequest {
+                recipient: dead1,
+                start_after: None,
+                limit: None,
+            })
             .should_succeed_and_equal(btree_map! {
                 accounts.owner.address() => coins! { velox::DENOM.clone() => 400 },
             });
 
         suite
-            .query_wasm_smart(
-                contracts.bank,
-                QueryOrphanedTransfersByRecipientRequest {
-                    recipient: dead2,
-                    start_after: None,
-                    limit: None,
-                },
-            )
+            .query_wasm_smart(contracts.bank, QueryOrphanedTransfersByRecipientRequest {
+                recipient: dead2,
+                start_after: None,
+                limit: None,
+            })
             .should_succeed_and_equal(btree_map! {
                 accounts.owner.address() => coins! { usdc::DENOM.clone() => 500 },
             });
@@ -319,8 +282,8 @@ where
     b.is_empty()
 }
 
-#[tokio::test]
-async fn set_namespace_owner_can_only_be_called_by_owner() {
+#[test]
+fn set_namespace_owner_can_only_be_called_by_owner() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     // Attempt to set namespace owner as non-owner. Should fail.
@@ -334,7 +297,6 @@ async fn set_namespace_owner_can_only_be_called_by_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_fail_with_error("you don't have the right, O you don't have the right");
 
     // Attempt to set namespace owner as owner. Should succeed.
@@ -348,12 +310,11 @@ async fn set_namespace_owner_can_only_be_called_by_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 }
 
-#[tokio::test]
-async fn set_metadata_can_only_be_called_by_non_namespace_owner() {
+#[test]
+fn set_metadata_can_only_be_called_by_non_namespace_owner() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     // Attempt to set metadata as non-namespace owner. Should fail.
@@ -372,7 +333,6 @@ async fn set_metadata_can_only_be_called_by_non_namespace_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_fail_with_error("sender does not own the namespace `testing`");
 
     // Set user1 as namespace owner of testing
@@ -386,7 +346,6 @@ async fn set_metadata_can_only_be_called_by_non_namespace_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Attempt to set metadata as user1. Should succeed.
@@ -406,17 +365,13 @@ async fn set_metadata_can_only_be_called_by_non_namespace_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Assert metadata is set correctly
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryMetadataRequest {
-                denom: Denom::new_unchecked(["testing", "test"]),
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryMetadataRequest {
+            denom: Denom::new_unchecked(["testing", "test"]),
+        })
         .should_succeed_and_equal(bank::Metadata {
             name: LengthBounded::new_unchecked("Very testy token".to_string()),
             symbol: LengthBounded::new_unchecked("TESTY".to_string()),
@@ -425,20 +380,17 @@ async fn set_metadata_can_only_be_called_by_non_namespace_owner() {
         });
 }
 
-#[tokio::test]
-async fn set_namespace_owner_works() {
+#[test]
+fn set_namespace_owner_works() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     // Query namespace owner of testing. Should fail because it's not set.
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryNamespaceOwnerRequest {
-                namespace: Part::new_unchecked("testing"),
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryNamespaceOwnerRequest {
+            namespace: Part::new_unchecked("testing"),
+        })
         .should_fail_with_error(
-            "msg: data not found! type: velox_primitives::encoded_bytes::EncodedBytes",
+            "msg: data not found! type: bolt_types::encoded_bytes::EncodedBytes",
         );
 
     // Set user1 as namespace owner of testing
@@ -452,17 +404,13 @@ async fn set_namespace_owner_works() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Query namespace owner of testing. Should succeed.
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryNamespaceOwnerRequest {
-                namespace: Part::new_unchecked("testing"),
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryNamespaceOwnerRequest {
+            namespace: Part::new_unchecked("testing"),
+        })
         .should_succeed_and_equal(accounts.user1.address());
 }
 
@@ -472,27 +420,33 @@ fn query_namespace_owners_works() {
 
     // Query namespace owners. Should succeed.
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryNamespaceOwnersRequest {
-                start_after: None,
-                limit: None,
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryNamespaceOwnersRequest {
+            start_after: None,
+            limit: None,
+        })
         .should_succeed_and_equal(btree_map! {
+            Part::new_unchecked("dex") => contracts.dex,
             Part::new_unchecked("bridge") => contracts.gateway,
+        });
+
+    // Query namespace owners with start_after. Should succeed.
+    suite
+        .query_wasm_smart(contracts.bank, bank::QueryNamespaceOwnersRequest {
+            start_after: Some(Part::new_unchecked("bridge")),
+            limit: None,
+        })
+        .should_succeed_and_equal(btree_map! {
+            Part::new_unchecked("dex") => contracts.dex,
         });
 
     // Query namespace owners with limit. Should succeed.
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryNamespaceOwnersRequest {
-                start_after: None,
-                limit: Some(1),
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryNamespaceOwnersRequest {
+            start_after: None,
+            limit: Some(2),
+        })
         .should_succeed_and_equal(btree_map! {
+            Part::new_unchecked("dex") => contracts.dex,
             Part::new_unchecked("bridge") => contracts.gateway,
         });
 }
@@ -502,59 +456,83 @@ fn query_metadatas_works() {
     let (suite, _, _, contracts, _) = setup_test_naive(Default::default());
 
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryMetadatasRequest {
-                start_after: None,
-                limit: None,
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryMetadatasRequest {
+            start_after: None,
+            limit: None,
+        })
         .should_succeed_and(|metadatas| {
             metadatas.keys().collect::<BTreeSet<_>>()
                 == BTreeSet::from([
+                    &Denom::new_unchecked(["bridge", "atom"]),
+                    &Denom::new_unchecked(["bridge", "bch"]),
+                    &Denom::new_unchecked(["bridge", "bnb"]),
+                    &Denom::new_unchecked(["bridge", "btc"]),
+                    &Denom::new_unchecked(["bridge", "doge"]),
                     &Denom::new_unchecked(["bridge", "eth"]),
+                    &Denom::new_unchecked(["bridge", "ltc"]),
+                    &Denom::new_unchecked(["bridge", "sol"]),
                     &Denom::new_unchecked(["bridge", "usdc"]),
+                    &Denom::new_unchecked(["bridge", "xrp"]),
                     &Denom::new_unchecked(["velox"]),
                 ])
         });
 
-    // Start after eth
+    // Start after btc
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryMetadatasRequest {
-                start_after: Some(Denom::new_unchecked(["bridge", "eth"])),
-                limit: None,
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryMetadatasRequest {
+            start_after: Some(Denom::new_unchecked(["bridge", "btc"])),
+            limit: None,
+        })
         .should_succeed_and(|metadatas| {
             metadatas.keys().collect::<BTreeSet<_>>()
                 == BTreeSet::from([
+                    &Denom::new_unchecked(["bridge", "doge"]),
+                    &Denom::new_unchecked(["bridge", "eth"]),
+                    &Denom::new_unchecked(["bridge", "ltc"]),
+                    &Denom::new_unchecked(["bridge", "sol"]),
                     &Denom::new_unchecked(["bridge", "usdc"]),
+                    &Denom::new_unchecked(["bridge", "xrp"]),
                     &Denom::new_unchecked(["velox"]),
                 ])
         });
 
-    // Limit 2
+    // Limit 3
     suite
-        .query_wasm_smart(
-            contracts.bank,
-            bank::QueryMetadatasRequest {
-                start_after: None,
-                limit: Some(2),
-            },
-        )
+        .query_wasm_smart(contracts.bank, bank::QueryMetadatasRequest {
+            start_after: None,
+            limit: Some(3),
+        })
         .should_succeed_and(|metadatas| {
             metadatas.keys().collect::<BTreeSet<_>>()
                 == BTreeSet::from([
-                    &Denom::new_unchecked(["bridge", "eth"]),
-                    &Denom::new_unchecked(["bridge", "usdc"]),
+                    &Denom::new_unchecked(["bridge", "atom"]),
+                    &Denom::new_unchecked(["bridge", "bch"]),
+                    &Denom::new_unchecked(["bridge", "bnb"]),
                 ])
         });
 }
 
-#[tokio::test]
-async fn top_level_denom_cannot_be_minted_or_burned_by_non_chain_owner() {
+#[test]
+fn force_transfer_can_only_be_called_by_taxman() {
+    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
+
+    // Attempt to force transfer as non-taxman. Should fail.
+    suite
+        .execute(
+            &mut accounts.user1,
+            contracts.bank,
+            &bank::ExecuteMsg::ForceTransfer {
+                from: accounts.user2.address(),
+                to: accounts.user3.address(),
+                coins: coins! { velox::DENOM.clone() => 100 },
+            },
+            Coins::new(),
+        )
+        .should_fail_with_error("you don't have the right, O you don't have the right");
+}
+
+#[test]
+fn top_level_denom_cannot_be_minted_or_burned_by_non_chain_owner() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     // Attempt to mint as non-owner. Should fail.
@@ -568,7 +546,6 @@ async fn top_level_denom_cannot_be_minted_or_burned_by_non_chain_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_fail_with_error(
             "only chain owner can mint, burn, or set metadata of top-level denoms",
         );
@@ -584,7 +561,6 @@ async fn top_level_denom_cannot_be_minted_or_burned_by_non_chain_owner() {
             },
             Coins::new(),
         )
-        .await
         .should_fail_with_error(
             "only chain owner can mint, burn, or set metadata of top-level denoms",
         );

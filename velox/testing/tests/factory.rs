@@ -1,15 +1,8 @@
 use {
-    std::str::FromStr,
     velox_account_factory::{MAX_ACCOUNTS_PER_USER, USERS},
     velox_genesis::{AccountOption, GenesisOption},
-    velox_math::Uint128,
-    velox_primitives::{
-        Addressable, Coins, HashExt, JsonSerExt, Message, NonEmpty, Op, QuerierExt, ResultExt,
-        Signer, btree_map, coins,
-    },
-    velox_storage::StorageQuerier,
     velox_testing::{
-        Factory, HyperlaneTestSuite, Preset, TestAccount, mock_arbitrum, setup_test_naive,
+        Factory, HyperlaneTestSuite, Preset, TestAccount, constants::mock_solana, setup_test_naive,
         setup_test_naive_with_custom_genesis,
     },
     velox_types::{
@@ -19,6 +12,11 @@ use {
         bank,
         constants::usdc,
     },
+    bolt::{
+        Addressable, Coins, HashExt, JsonSerExt, Message, NonEmpty, Op, QuerierExt, ResultExt,
+        Signer, StorageQuerier, Uint128, btree_map, coins,
+    },
+    std::str::FromStr,
 };
 
 /// Prior to PR [#1460](https://github.com/nabob-labs/laffer/pull/1460),
@@ -26,19 +24,16 @@ use {
 /// message. Sending the `RegisterUser` message without a deposit resulting in
 /// the transaction failing. This design has drawbacks; see the PR's description.
 /// Since PR #1460, this test now reflects the intended onboarding procedure.
-#[tokio::test]
-async fn onboarding_without_deposit() {
+#[test]
+fn onboarding_without_deposit() {
     let (suite, mut accounts, codes, contracts, validator_sets) =
-        setup_test_naive_with_custom_genesis(
-            Default::default(),
-            GenesisOption {
-                account: AccountOption {
-                    minimum_deposit: coins! { usdc::DENOM.clone() => 10_000_000 },
-                    ..Preset::preset_test()
-                },
+        setup_test_naive_with_custom_genesis(Default::default(), GenesisOption {
+            account: AccountOption {
+                minimum_deposit: coins! { usdc::DENOM.clone() => 10_000_000 },
                 ..Preset::preset_test()
             },
-        );
+            ..Preset::preset_test()
+        });
     let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
 
     // Make an empty block to advance block height from 0 to 1.
@@ -48,7 +43,7 @@ async fn onboarding_without_deposit() {
     // that would be block 0, in other words the genesis block. The single-signature
     // account won't claim orphaned transfers during genesis. For a realistic test,
     // we do `CheckTx` at a post-genesis block.
-    suite.make_empty_block().await;
+    suite.make_empty_block();
 
     let chain_id = suite.chain_id.clone();
 
@@ -81,7 +76,6 @@ async fn onboarding_without_deposit() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // The account should have been created in the `Inactive` state.
@@ -109,12 +103,11 @@ async fn onboarding_without_deposit() {
     suite
         .receive_warp_transfer(
             &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
+            mock_solana::DOMAIN,
+            mock_solana::USDC_WARP,
             &user,
             10_000_000, // Minimum deposit is 10_000_000. Need to send at this that amount.
         )
-        .await
         .should_succeed();
 
     // Account should have been activated.
@@ -135,7 +128,6 @@ async fn onboarding_without_deposit() {
             &account_factory::ExecuteMsg::RegisterAccount {},
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Ensure the user now has two accounts and they are both active.
@@ -155,337 +147,10 @@ async fn onboarding_without_deposit() {
         });
 }
 
-/// An inactive account must not be able to receive a transfer from any sender
-/// other than the gateway. Only the gateway can deposit into (and thereby
-/// activate) an inactive account.
-#[tokio::test]
-async fn inactive_account_rejects_transfer_from_non_gateway() {
-    let (mut suite, mut accounts, codes, contracts, _) = setup_test_naive_with_custom_genesis(
-        Default::default(),
-        GenesisOption {
-            account: AccountOption {
-                minimum_deposit: coins! { usdc::DENOM.clone() => 10_000_000 },
-                ..Preset::preset_test()
-            },
-            ..Preset::preset_test()
-        },
-    );
-
-    let chain_id = suite.chain_id.clone();
-
-    let user = TestAccount::new_random().predict_address(
-        contracts.account_factory,
-        3,
-        codes.account.to_bytes().hash256(),
-        true,
-    );
-
-    // Register the user without making a deposit. The account is created in
-    // the `Inactive` state.
-    suite
-        .execute(
-            &mut Factory::new(contracts.account_factory),
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::RegisterUser {
-                key: user.first_key(),
-                key_hash: user.first_key_hash(),
-                seed: 3,
-                signature: user
-                    .sign_arbitrary(RegisterUserData {
-                        chain_id: chain_id.clone(),
-                        key: user.first_key(),
-                        key_hash: user.first_key_hash(),
-                        seed: 3,
-                        referrer: None,
-                    })
-                    .unwrap(),
-                referrer: None,
-            },
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Inactive);
-
-    // The owner (a regular activated user, not the gateway) attempts to
-    // transfer USDC into the inactive account. The transfer must be rejected.
-    suite
-        .transfer(
-            &mut accounts.owner,
-            user.address(),
-            coins! { usdc::DENOM.clone() => 10_000_000 },
-        )
-        .await
-        .should_fail_with_error(format!(
-            "account {} is not active, only the gateway can deposit into it",
-            user.address()
-        ));
-
-    // The account must still be inactive.
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Inactive);
-}
-
-/// A sufficient deposit routed through the gateway activates an inactive
-/// account.
-#[tokio::test]
-async fn gateway_deposit_activates_account() {
-    let (suite, mut accounts, codes, contracts, validator_sets) =
-        setup_test_naive_with_custom_genesis(
-            Default::default(),
-            GenesisOption {
-                account: AccountOption {
-                    minimum_deposit: coins! { usdc::DENOM.clone() => 10_000_000 },
-                    ..Preset::preset_test()
-                },
-                ..Preset::preset_test()
-            },
-        );
-    let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
-
-    // Make an empty block so that subsequent transactions are processed at a
-    // post-genesis block height (see `onboarding_without_deposit` for context).
-    suite.make_empty_block().await;
-
-    let chain_id = suite.chain_id.clone();
-
-    let user = TestAccount::new_random().predict_address(
-        contracts.account_factory,
-        3,
-        codes.account.to_bytes().hash256(),
-        true,
-    );
-
-    // Register the user without a deposit. The account starts as `Inactive`.
-    suite
-        .execute(
-            &mut Factory::new(contracts.account_factory),
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::RegisterUser {
-                key: user.first_key(),
-                key_hash: user.first_key_hash(),
-                seed: 3,
-                signature: user
-                    .sign_arbitrary(RegisterUserData {
-                        chain_id: chain_id.clone(),
-                        key: user.first_key(),
-                        key_hash: user.first_key_hash(),
-                        seed: 3,
-                        referrer: None,
-                    })
-                    .unwrap(),
-                referrer: None,
-            },
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Inactive);
-
-    // Receive a warp transfer of the minimum amount. The funds are forwarded
-    // by the gateway to the account, which must flip the account to `Active`.
-    suite
-        .receive_warp_transfer(
-            &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
-            &user,
-            10_000_000,
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Active);
-}
-
-/// A transfer from the gateway to an inactive account must not be rejected,
-/// even when the amount is below the minimum deposit. The account stays
-/// `Inactive` but the funds are credited.
-#[tokio::test]
-async fn gateway_transfer_to_inactive_account_is_accepted() {
-    let (suite, mut accounts, codes, contracts, validator_sets) =
-        setup_test_naive_with_custom_genesis(
-            Default::default(),
-            GenesisOption {
-                account: AccountOption {
-                    minimum_deposit: coins! { usdc::DENOM.clone() => 10_000_000 },
-                    ..Preset::preset_test()
-                },
-                ..Preset::preset_test()
-            },
-        );
-    let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
-
-    suite.make_empty_block().await;
-
-    let chain_id = suite.chain_id.clone();
-
-    let user = TestAccount::new_random().predict_address(
-        contracts.account_factory,
-        3,
-        codes.account.to_bytes().hash256(),
-        true,
-    );
-
-    // Register the user without a deposit. The account starts as `Inactive`.
-    suite
-        .execute(
-            &mut Factory::new(contracts.account_factory),
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::RegisterUser {
-                key: user.first_key(),
-                key_hash: user.first_key_hash(),
-                seed: 3,
-                signature: user
-                    .sign_arbitrary(RegisterUserData {
-                        chain_id: chain_id.clone(),
-                        key: user.first_key(),
-                        key_hash: user.first_key_hash(),
-                        seed: 3,
-                        referrer: None,
-                    })
-                    .unwrap(),
-                referrer: None,
-            },
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Inactive);
-
-    // Gateway forwards a transfer below the minimum deposit. The transfer
-    // must succeed (gateway is the authorized sender) but the account stays
-    // inactive since the amount is insufficient.
-    suite
-        .receive_warp_transfer(
-            &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
-            &user,
-            1_000_000, // 1 USDC, below the 10 USDC minimum.
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Inactive);
-
-    // The account should have been credited with the 1 USDC.
-    suite
-        .query_balance(&user, usdc::DENOM.clone())
-        .should_succeed_and_equal(Uint128::new(1_000_000));
-}
-
-/// Multiple sub-minimum gateway deposits to an inactive account must
-/// accumulate: once the balance reaches the minimum, the next deposit (even
-/// a small one) flips the account to `Active`.
-#[tokio::test]
-async fn gateway_deposits_accumulate_to_activate() {
-    let (suite, mut accounts, codes, contracts, validator_sets) =
-        setup_test_naive_with_custom_genesis(
-            Default::default(),
-            GenesisOption {
-                account: AccountOption {
-                    minimum_deposit: coins! { usdc::DENOM.clone() => 10_000_000 },
-                    ..Preset::preset_test()
-                },
-                ..Preset::preset_test()
-            },
-        );
-    let mut suite = HyperlaneTestSuite::new(suite, validator_sets, &contracts);
-
-    suite.make_empty_block().await;
-
-    let chain_id = suite.chain_id.clone();
-
-    let user = TestAccount::new_random().predict_address(
-        contracts.account_factory,
-        3,
-        codes.account.to_bytes().hash256(),
-        true,
-    );
-
-    // Register the user without a deposit. The account starts as `Inactive`.
-    suite
-        .execute(
-            &mut Factory::new(contracts.account_factory),
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::RegisterUser {
-                key: user.first_key(),
-                key_hash: user.first_key_hash(),
-                seed: 3,
-                signature: user
-                    .sign_arbitrary(RegisterUserData {
-                        chain_id: chain_id.clone(),
-                        key: user.first_key(),
-                        key_hash: user.first_key_hash(),
-                        seed: 3,
-                        referrer: None,
-                    })
-                    .unwrap(),
-                referrer: None,
-            },
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    // First sub-minimum deposit (6 USDC < 10 USDC). Account stays inactive.
-    suite
-        .receive_warp_transfer(
-            &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
-            &user,
-            6_000_000,
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Inactive);
-
-    // Second sub-minimum deposit (4 USDC). On its own it wouldn't activate,
-    // but combined with the first the balance now reaches 10 USDC, so the
-    // account must flip to `Active`.
-    suite
-        .receive_warp_transfer(
-            &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
-            &user,
-            4_000_000,
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(user.address(), account::QueryStatusRequest {})
-        .should_succeed_and_equal(AccountStatus::Active);
-
-    suite
-        .query_balance(&user, usdc::DENOM.clone())
-        .should_succeed_and_equal(Uint128::new(10_000_000));
-}
-
 /// If minimum deposit is zero, then the account is automatically activated.
 /// No need to make a deposit.
-#[tokio::test]
-async fn onboarding_without_deposit_when_minimum_deposit_is_zero() {
+#[test]
+fn onboarding_without_deposit_when_minimum_deposit_is_zero() {
     // Set up the test with minimum deposit set to zero.
     let (mut suite, mut accounts, codes, contracts, _) = setup_test_naive(Default::default());
 
@@ -520,7 +185,6 @@ async fn onboarding_without_deposit_when_minimum_deposit_is_zero() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Now that the user has been created, query it's index.
@@ -574,8 +238,8 @@ async fn onboarding_without_deposit_when_minimum_deposit_is_zero() {
 /// However, we keep this test for the edge case -- what if someone sends a
 /// transfer before creating the account? The user needs to be able to recover
 /// the funds.
-#[tokio::test]
-async fn onboarding_with_deposit_when_minimum_deposit_is_zero() {
+#[test]
+fn onboarding_with_deposit_when_minimum_deposit_is_zero() {
     // Set up the test with minimum deposit set to zero.
     let (suite, mut accounts, codes, contracts, validator_sets) =
         setup_test_naive(Default::default());
@@ -594,12 +258,11 @@ async fn onboarding_with_deposit_when_minimum_deposit_is_zero() {
     suite
         .receive_warp_transfer(
             &mut accounts.owner,
-            mock_arbitrum::DOMAIN,
-            mock_arbitrum::USDC_WARP,
+            mock_solana::DOMAIN,
+            mock_solana::USDC_WARP,
             &user,
             10_000_000,
         )
-        .await
         .should_succeed();
 
     // Sign the `RegisterUserData`.
@@ -628,7 +291,6 @@ async fn onboarding_with_deposit_when_minimum_deposit_is_zero() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Now that the user has been created, he can claim the orphaned transfer.
@@ -645,7 +307,6 @@ async fn onboarding_with_deposit_when_minimum_deposit_is_zero() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Make sure a single-signature account is created with the deposited balance.
@@ -654,51 +315,8 @@ async fn onboarding_with_deposit_when_minimum_deposit_is_zero() {
         .should_succeed_and_equal(Uint128::new(10_000_000));
 }
 
-/// Sending funds along with the `RegisterUser` message must be rejected: the
-/// new account is created inactive and can't use the funds, so they would be
-/// locked.
-#[tokio::test]
-async fn onboarding_with_funds_attached_is_rejected() {
-    let (mut suite, mut accounts, codes, contracts, _) = setup_test_naive(Default::default());
-
-    let chain_id = suite.chain_id.clone();
-
-    let user = TestAccount::new_random().predict_address(
-        contracts.account_factory,
-        3,
-        codes.account.to_bytes().hash256(),
-        true,
-    );
-
-    let funds = coins! { usdc::DENOM.clone() => 1 };
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::RegisterUser {
-                key: user.first_key(),
-                key_hash: user.first_key_hash(),
-                seed: 3,
-                signature: user
-                    .sign_arbitrary(RegisterUserData {
-                        chain_id,
-                        key: user.first_key(),
-                        key_hash: user.first_key_hash(),
-                        seed: 3,
-                        referrer: None,
-                    })
-                    .unwrap(),
-                referrer: None,
-            },
-            funds,
-        )
-        .await
-        .should_fail_with_error("no funds expected during user registration");
-}
-
-#[tokio::test]
-async fn update_key() {
+#[test]
+fn update_key() {
     let (mut suite, _, codes, contracts, _) = setup_test_naive(Default::default());
 
     let chain_id = suite.chain_id.clone();
@@ -735,7 +353,6 @@ async fn update_key() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Now that the user has been created, query it's index.
@@ -753,7 +370,6 @@ async fn update_key() {
             },
             Coins::new(),
         )
-        .await
         .should_fail_with_error(format!(
             "can't delete the last key associated with user index {}",
             user.user_index()
@@ -781,7 +397,6 @@ async fn update_key() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Query keys should return two keys.
@@ -807,7 +422,6 @@ async fn update_key() {
             },
             Coins::new(),
         )
-        .await
         .should_fail_with_error(format!(
             "key is already associated with user index {}",
             user.user_index()
@@ -824,7 +438,6 @@ async fn update_key() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Query keys should return only one key.
@@ -837,8 +450,8 @@ async fn update_key() {
         .should_succeed_and_equal(btree_map! { key_hash => pk });
 }
 
-#[tokio::test]
-async fn single_signature_account_count_limit() {
+#[test]
+fn single_signature_account_count_limit() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     let user_index = accounts.user1.user_index();
@@ -852,7 +465,6 @@ async fn single_signature_account_count_limit() {
                 &account_factory::ExecuteMsg::RegisterAccount {},
                 Coins::new(),
             )
-            .await
             .should_succeed();
     }
 
@@ -870,13 +482,12 @@ async fn single_signature_account_count_limit() {
             &account_factory::ExecuteMsg::RegisterAccount {},
             Coins::new(),
         )
-        .await
         .should_fail_with_error(format!("user {user_index} has reached max account count"));
 }
 
 /// New users should automatically get a `user_{index}` default username.
-#[tokio::test]
-async fn new_user_gets_default_username() {
+#[test]
+fn new_user_gets_default_username() {
     let (mut suite, _, codes, contracts, _) = setup_test_naive(Default::default());
 
     let chain_id = suite.chain_id.clone();
@@ -909,7 +520,6 @@ async fn new_user_gets_default_username() {
             },
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let user = user.query_user_index(suite.querier());
@@ -944,8 +554,8 @@ fn genesis_users_have_default_username() {
 }
 
 /// A user with a default username can change it to a custom one.
-#[tokio::test]
-async fn update_default_username() {
+#[test]
+fn update_default_username() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     let user_index = accounts.user1.user_index();
@@ -958,7 +568,6 @@ async fn update_default_username() {
             &account_factory::ExecuteMsg::UpdateUsername(custom_name.clone()),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify the username was updated.
@@ -979,8 +588,8 @@ async fn update_default_username() {
 }
 
 /// A user with a custom username cannot change it again.
-#[tokio::test]
-async fn cannot_change_custom_username() {
+#[test]
+fn cannot_change_custom_username() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     let user_index = accounts.user1.user_index();
@@ -994,7 +603,6 @@ async fn cannot_change_custom_username() {
             &account_factory::ExecuteMsg::UpdateUsername(custom_name),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Second change: custom → another custom. Should fail.
@@ -1006,15 +614,14 @@ async fn cannot_change_custom_username() {
             &account_factory::ExecuteMsg::UpdateUsername(another_name),
             Coins::new(),
         )
-        .await
         .should_fail_with_error(format!(
             "a custom username is already set for user {user_index}"
         ));
 }
 
 /// Users cannot set a reserved `user_N` pattern as their custom username.
-#[tokio::test]
-async fn cannot_set_reserved_username() {
+#[test]
+fn cannot_set_reserved_username() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     let reserved_name = Username::from_str("user_999").unwrap();
@@ -1026,13 +633,12 @@ async fn cannot_set_reserved_username() {
             &account_factory::ExecuteMsg::UpdateUsername(reserved_name),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("usernames matching 'user_N' are reserved");
 }
 
 /// Two users cannot claim the same username.
-#[tokio::test]
-async fn cannot_claim_taken_username() {
+#[test]
+fn cannot_claim_taken_username() {
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
 
     let name = Username::from_str("alice").unwrap();
@@ -1045,7 +651,6 @@ async fn cannot_claim_taken_username() {
             &account_factory::ExecuteMsg::UpdateUsername(name.clone()),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // User 2 tries to claim "alice". Should fail.
@@ -1056,7 +661,6 @@ async fn cannot_claim_taken_username() {
             &account_factory::ExecuteMsg::UpdateUsername(name.clone()),
             Coins::new(),
         )
-        .await
         .should_fail_with_error(format!(
             "the username `{name}` is already associated with a user index"
         ));
@@ -1097,87 +701,4 @@ fn forgot_username_returns_users_with_index() {
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].index, user_index);
     assert_eq!(users[0].name, Username::default_for_index(user_index));
-}
-
-/// The chain owner can reset a user's custom username back to the default,
-/// after which the user can set a new custom username.
-#[tokio::test]
-async fn owner_can_reset_username() {
-    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
-
-    let user_index = accounts.user1.user_index();
-    let custom_name = Username::from_str("alice").unwrap();
-
-    // User sets a custom username.
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::UpdateUsername(custom_name.clone()),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(
-            contracts.account_factory,
-            account_factory::QueryUserRequest(UserIndexOrName::Index(user_index)),
-        )
-        .should_succeed_and(|res| res.name == custom_name);
-
-    // Owner resets it back to the default.
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::ForceResetUsername { user_index },
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(
-            contracts.account_factory,
-            account_factory::QueryUserRequest(UserIndexOrName::Index(user_index)),
-        )
-        .should_succeed_and(|res| res.name == Username::default_for_index(user_index));
-
-    // The user can now claim a new custom username.
-    let new_name = Username::from_str("alice2").unwrap();
-    suite
-        .execute(
-            &mut accounts.user1,
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::UpdateUsername(new_name.clone()),
-            Coins::new(),
-        )
-        .await
-        .should_succeed();
-
-    suite
-        .query_wasm_smart(
-            contracts.account_factory,
-            account_factory::QueryUserRequest(UserIndexOrName::Index(user_index)),
-        )
-        .should_succeed_and(|res| res.name == new_name);
-}
-
-/// A non-owner cannot reset a user's username.
-#[tokio::test]
-async fn non_owner_cannot_reset_username() {
-    let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(Default::default());
-
-    let user_index = accounts.user1.user_index();
-
-    suite
-        .execute(
-            &mut accounts.user2,
-            contracts.account_factory,
-            &account_factory::ExecuteMsg::ForceResetUsername { user_index },
-            Coins::new(),
-        )
-        .await
-        .should_fail_with_error("you don't have the right, O you don't have the right");
 }

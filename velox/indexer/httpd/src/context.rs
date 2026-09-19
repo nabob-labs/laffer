@@ -1,122 +1,46 @@
 use {
-    crate::traits::{ConsensusClient, QueryApp},
-    sea_orm::{ConnectOptions, Database, DatabaseConnection},
+    velox_indexer_sql::{
+        entity::perps_trade::PerpsTrade, indexer::perps_trades::cache::PerpsTradeCache,
+    },
+    indexer_sql::pubsub::PubSub,
+    sea_orm::DatabaseConnection,
     std::sync::Arc,
     tokio::sync::RwLock,
-    velox_indexer_sql::{
-        EventCacheReader, entity::perps_trade::PerpsTrade, pubsub::PubSub,
-        write::perps_trades::PerpsTradeCache,
-    },
 };
 
-/// Chain-only context — what `cfg.indexer.enabled = false` mode runs against.
-/// Holds just the chain query app. `FullContext` embeds one of these as its
-/// `base` field so `CoreQuery` resolvers work in either schema.
 #[derive(Clone)]
-pub struct MinimalContext {
-    pub velox_app: Arc<dyn QueryApp + Send + Sync>,
-}
-
-impl MinimalContext {
-    pub fn new(velox_app: Arc<dyn QueryApp + Send + Sync>) -> Self {
-        Self { velox_app }
-    }
-}
-
-#[derive(Clone)]
-pub struct FullContext {
-    pub sql_context: velox_indexer_sql::Context,
-    pub indexer_cache_context: velox_indexer_cache::Context,
-    pub clickhouse_context: velox_indexer_clickhouse::context::Context,
-    /// Reader handle to the validator-side realtime stream backing the
-    /// `perps_events` subscription.
-    pub stream_context: velox_indexer_stream::Context,
-    pub base: MinimalContext,
+pub struct Context {
+    pub indexer_httpd_context: indexer_httpd::context::Context,
+    pub indexer_clickhouse_context: velox_indexer_clickhouse::context::Context,
     pub db: DatabaseConnection,
     pub pubsub: Arc<dyn PubSub<u64> + Send + Sync>,
     pub perps_trade_pubsub: Arc<dyn PubSub<PerpsTrade> + Send + Sync>,
     pub perps_trade_cache: Arc<RwLock<PerpsTradeCache>>,
-    pub consensus_client: Arc<dyn ConsensusClient + Send + Sync>,
-    pub event_cache: EventCacheReader,
     pub static_files_path: Option<String>,
 }
 
-impl FullContext {
+impl Context {
     pub fn new(
-        indexer_cache_context: velox_indexer_cache::Context,
-        ctx: velox_indexer_sql::Context,
-        clickhouse_context: velox_indexer_clickhouse::context::Context,
-        stream_context: velox_indexer_stream::Context,
-        velox_app: Arc<dyn QueryApp + Send + Sync>,
-        consensus_client: Arc<dyn ConsensusClient + Send + Sync>,
+        indexer_httpd_context: indexer_httpd::context::Context,
+        indexer_clickhouse_context: velox_indexer_clickhouse::context::Context,
+        ctx: velox_indexer_sql::context::Context,
         static_files_path: Option<String>,
     ) -> Self {
         Self {
-            indexer_cache_context,
-            clickhouse_context,
-            stream_context,
+            indexer_httpd_context,
+            indexer_clickhouse_context,
             db: ctx.db.clone(),
             pubsub: ctx.pubsub.clone(),
             perps_trade_pubsub: ctx.perps_trade_pubsub.clone(),
             perps_trade_cache: ctx.perps_trade_cache.clone(),
-            event_cache: ctx.event_cache.as_reader(),
-            sql_context: ctx,
-            base: MinimalContext::new(velox_app),
-            consensus_client,
             static_files_path,
         }
     }
 
-    pub fn velox_app(&self) -> &Arc<dyn QueryApp + Send + Sync> {
-        &self.base.velox_app
-    }
-
     /// Preload the perps trade cache from existing DB data so that new
     /// GraphQL subscribers immediately receive recent trades.
-    pub async fn start_perps_trade_cache(
-        &self,
-    ) -> Result<(), velox_indexer_sql::error::IndexerError> {
+    pub async fn start_perps_trade_cache(&self) -> Result<(), velox_indexer_sql::error::Error> {
         let mut cache = self.perps_trade_cache.write().await;
         cache.preload(&self.db).await
-    }
-}
-
-impl FullContext {
-    pub async fn connect_db() -> Result<DatabaseConnection, sea_orm::DbErr> {
-        let database_url = "sqlite::memory:";
-
-        Self::connect_db_with_url(database_url).await
-    }
-
-    pub async fn connect_db_with_url(
-        database_url: &str,
-    ) -> Result<DatabaseConnection, sea_orm::DbErr> {
-        let mut opt = ConnectOptions::new(database_url.to_owned());
-
-        // Default number of workers is the number of logical CPUs, which is what actix is using
-        // TODO: add this as a configuration flag
-        let num_workers = num_cpus::get();
-
-        opt.max_connections(num_workers as u32)
-            //.min_connections(5)
-            //.connect_timeout(Duration::from_secs(settings.timeout))
-            //.idle_timeout(Duration::from_secs(8))
-            //.max_lifetime(Duration::from_secs(20))
-            .sqlx_logging(false);
-
-        match Database::connect(opt).await {
-            Ok(db) => {
-                #[cfg(feature = "tracing")]
-                tracing::info!(database_url, "Connected to database");
-
-                Ok(db)
-            }
-            Err(error) => {
-                #[cfg(feature = "tracing")]
-                tracing::error!(database_url, %error, "Failed to connect to database");
-
-                Err(error)
-            }
-        }
     }
 }

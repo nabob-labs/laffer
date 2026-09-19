@@ -1,17 +1,18 @@
 use {
     crate::{default_pair_param, default_param, register_oracle_prices},
-    std::collections::BTreeMap,
-    velox_math::{MultiplyRatio, NumberConst, Uint128},
     velox_order_book::{
         Dimensionless, OrderId, OrderKind, Quantity, QueryOrdersByUserResponseItem, UsdPrice,
         UsdValue,
     },
-    velox_primitives::{Addressable, Coins, QuerierExt, ResultExt, btree_map},
-    velox_testing::{TestOption, pair_id, setup_test_naive},
+    velox_testing::{TestOption, perps::pair_id, setup_test_naive},
     velox_types::{
         constants::usdc,
         perps::{self, PairParam, Param},
     },
+    bolt::{
+        Addressable, Coins, MultiplyRatio, NumberConst, QuerierExt, ResultExt, Uint128, btree_map,
+    },
+    std::collections::BTreeMap,
 };
 
 /// Regression test: vault withdrawal pushes vault into liquidatable state
@@ -35,14 +36,14 @@ use {
 /// | 4    | Taker sells into vault bid                      | vault goes long; margin ~$5,000                               | vault has long position          |
 /// | 5    | Oracle drops to $1,900 (breakeven)              | PnL=0; equity≈$5,000; MM≈$1,188                               | vault healthy (equity > MM)      |
 /// | 6    | LP burns ~85% of shares                         | release≈$4,250; old margin check passes; equity→≈$750         | withdraw rejected (fix)          |
-#[tokio::test]
-async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
+#[test]
+fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
     // ---- Step 0: Setup ----
 
     let (mut suite, mut accounts, _, contracts, _) = setup_test_naive(TestOption::default());
     let pair = pair_id();
 
-    register_oracle_prices(&mut suite, &mut accounts, 2_000).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 2_000);
 
     // -------------------------------------------------------------------------
     // Step 1: LP (user1) deposits $5,000 USDC and adds $5,000 as vault liquidity.
@@ -55,7 +56,6 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(5_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -68,16 +68,12 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     let lp_state: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: accounts.user1.address(),
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: accounts.user1.address(),
+        })
         .should_succeed()
         .unwrap();
     let lp_shares = lp_state.vault_shares;
@@ -107,41 +103,26 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
             }),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // -------------------------------------------------------------------------
     // Step 3: Refresh vault orders. Expect bid at $1,900 (= $2,000 * 0.95).
     // -------------------------------------------------------------------------
 
-    suite.make_empty_block().await;
+    suite.make_empty_block();
     suite
         .execute(
             &mut accounts.owner,
             contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshIndexPrices {}),
+            &perps::ExecuteMsg::Vault(perps::VaultMsg::Refresh {}),
             Coins::new(),
         )
-        .await
-        .should_succeed();
-
-    suite
-        .execute(
-            &mut accounts.owner,
-            contracts.perps,
-            &perps::ExecuteMsg::Maintain(perps::MaintainerMsg::RefreshVaultOrders {}),
-            Coins::new(),
-        )
-        .await
         .should_succeed();
 
     let vault_orders: BTreeMap<OrderId, QueryOrdersByUserResponseItem> = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryOrdersByUserRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryOrdersByUserRequest {
+            user: contracts.perps,
+        })
         .should_succeed();
 
     let vault_bids: Vec<_> = vault_orders
@@ -173,7 +154,6 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
             &perps::ExecuteMsg::Trade(perps::TraderMsg::Deposit { to: None }),
             Coins::one(usdc::DENOM.clone(), Uint128::new(10_000_000_000)).unwrap(),
         )
-        .await
         .should_succeed();
 
     suite
@@ -192,17 +172,13 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
             })),
             Coins::new(),
         )
-        .await
         .should_succeed();
 
     // Verify vault has a long position.
     let vault_state: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
     let vault_pos = vault_state
@@ -221,22 +197,19 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
     // Vault is healthy: $5,000 > $1,900.
     // -------------------------------------------------------------------------
 
-    register_oracle_prices(&mut suite, &mut accounts, 1_900).await;
+    register_oracle_prices(&mut suite, &mut accounts, &contracts, 1_900);
 
     let vault_ext: perps::UserStateExtended = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateExtendedRequest {
-                user: contracts.perps,
-                include_equity: true,
-                include_maintenance_margin: true,
-                include_available_margin: false,
-                include_unrealized_pnl: true,
-                include_unrealized_funding: false,
-                include_liquidation_price: false,
-                include_all: false,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateExtendedRequest {
+            user: contracts.perps,
+            include_equity: true,
+            include_maintenance_margin: true,
+            include_available_margin: false,
+            include_unrealized_pnl: true,
+            include_unrealized_funding: false,
+            include_liquidation_price: false,
+            include_all: false,
+        })
         .should_succeed();
 
     let equity_before = vault_ext.equity.unwrap();
@@ -247,12 +220,9 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
     );
     // Confirm breakeven: equity ≈ margin (no unrealized PnL).
     let vault_state_bev: perps::UserState = suite
-        .query_wasm_smart(
-            contracts.perps,
-            perps::QueryUserStateRequest {
-                user: contracts.perps,
-            },
-        )
+        .query_wasm_smart(contracts.perps, perps::QueryUserStateRequest {
+            user: contracts.perps,
+        })
         .should_succeed()
         .unwrap();
     assert_eq!(
@@ -280,6 +250,5 @@ async fn vault_withdrawal_at_breakeven_makes_vault_liquidatable() {
             &perps::ExecuteMsg::Vault(perps::VaultMsg::RemoveLiquidity { shares_to_burn }),
             Coins::new(),
         )
-        .await
         .should_fail_with_error("insufficient vault available margin to cover withdrawal");
 }

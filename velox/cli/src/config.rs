@@ -1,11 +1,11 @@
 use {
+    bolt_types::{HexBinary, HttpdConfig},
     serde::{Deserialize, Serialize},
-    velox_primitives::{HexBinary, HttpdConfig},
 };
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Config {
-    pub grug: GrugConfig,
+    pub bolt: BoltConfig,
     pub indexer: IndexerConfig,
     pub httpd: HttpdConfig,
     pub metrics_httpd: MetricsHttpdConfig,
@@ -35,13 +35,13 @@ pub enum LogFormat {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GrugConfig {
+pub struct BoltConfig {
     pub wasm_cache_capacity: usize,
     pub query_gas_limit: u64,
     pub priority_range: Option<(HexBinary, HexBinary)>,
 }
 
-impl Default for GrugConfig {
+impl Default for BoltConfig {
     fn default() -> Self {
         Self {
             wasm_cache_capacity: 1000,
@@ -67,7 +67,7 @@ pub struct IndexerConfig {
     pub keep_blocks: bool,
     pub database: IndexerDatabaseConfig,
     pub clickhouse: ClickhouseConfig,
-    pub s3: velox_indexer_cache::S3Config,
+    pub s3: indexer_cache::S3Config,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -89,11 +89,6 @@ impl Default for IndexerDatabaseConfig {
 pub struct TendermintConfig {
     pub rpc_addr: String,
     pub abci_addr: String,
-
-    /// Number of most-recent blocks for CometBFT to retain; older blocks are
-    /// pruned. `0` retains all blocks.
-    #[serde(default)]
-    pub retain_recent_blocks: u64,
 }
 
 impl Default for TendermintConfig {
@@ -101,7 +96,6 @@ impl Default for TendermintConfig {
         Self {
             rpc_addr: "http://localhost:26657".to_string(),
             abci_addr: "http://localhost:26658".to_string(),
-            retain_recent_blocks: 0,
         }
     }
 }

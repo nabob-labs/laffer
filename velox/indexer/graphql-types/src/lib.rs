@@ -4,7 +4,7 @@ pub trait Variables {
 
 #[allow(clippy::upper_case_acronyms)]
 type JSON = serde_json::Value;
-type GrugQueryInput = serde_json::Value;
+type BoltQueryInput = serde_json::Value;
 type UnsignedTx = serde_json::Value;
 type Tx = serde_json::Value;
 type DateTime = String;
@@ -27,16 +27,7 @@ pub struct PageInfo {
 // ----------------------------------- Types -----------------------------------
 
 macro_rules! generate_types {
-    // The query path is captured as `:tt` (a single token tree), not
-    // `:literal`, on purpose. Since `graphql_client` 0.16, the
-    // `GraphQLQuery` derive parses the `#[graphql(...)]` attribute by
-    // manually walking the raw token stream, and requires the value of
-    // `query_path` to be a bare literal token. A `:literal` metavariable is
-    // interpolated wrapped in an invisible `Delimiter::None` group, which
-    // that walker does not see through, so it reports `Attribute query_path
-    // not found`. A `:tt` capture is interpolated transparently, so the
-    // string literal arrives as the bare token the derive expects.
-    ($({name: $name:ident, path: $path:tt $(,)?}), * $(,)? ) => {
+    ($({name: $name:ident, path: $path:literal $(,)?}), * $(,)? ) => {
         $(
             #[derive(graphql_client::GraphQLQuery)]
             #[graphql(
@@ -60,6 +51,10 @@ generate_types! {
     {
         name: QueryApp,
         path: "src/schemas/queries/queryApp.graphql",
+    },
+    {
+        name: QueryStore,
+        path: "src/schemas/queries/queryStore.graphql",
     },
     {
         name: Simulate,
@@ -110,12 +105,32 @@ generate_types! {
         path: "src/schemas/queries/users.graphql",
     },
     {
+        name: Candles,
+        path: "src/schemas/queries/candles.graphql",
+    },
+    {
         name: PerpsCandles,
         path: "src/schemas/queries/perpsCandles.graphql",
     },
     {
         name: PerpsEvents,
         path: "src/schemas/queries/perpsEvents.graphql",
+    },
+    {
+        name: Trades,
+        path: "src/schemas/queries/trades.graphql",
+    },
+    {
+        name: PairStats,
+        path: "src/schemas/queries/pairStats.graphql",
+    },
+    {
+        name: PairStatsPartial,
+        path: "src/schemas/queries/pairStatsPartial.graphql",
+    },
+    {
+        name: AllPairStats,
+        path: "src/schemas/queries/allPairStats.graphql",
     },
     {
         name: PerpsPairStats,
@@ -138,9 +153,7 @@ generate_types! {
 // ---------------------------- Subscription types -----------------------------
 
 macro_rules! generate_subscription_types {
-    // `path` is captured as `:tt` rather than `:literal` for the same reason
-    // as in `generate_types!` above (graphql_client 0.16 attribute parsing).
-    ($({name: $name:ident, path: $path:tt $(,)?}), * $(,)? ) => {
+    ($({name: $name:ident, path: $path:literal $(,)?}), * $(,)? ) => {
         $(
             #[derive(graphql_client::GraphQLQuery)]
             #[graphql(
@@ -190,8 +203,16 @@ generate_subscription_types! {
         path: "src/schemas/subscriptions/eventByAddresses.graphql",
     },
     {
+        name: SubscribeCandles,
+        path: "src/schemas/subscriptions/candles.graphql",
+    },
+    {
         name: SubscribePerpsCandles,
         path: "src/schemas/subscriptions/perpsCandles.graphql",
+    },
+    {
+        name: SubscribeTrades,
+        path: "src/schemas/subscriptions/trades.graphql",
     },
     {
         name: SubscribePerpsTrades,
@@ -202,6 +223,10 @@ generate_subscription_types! {
         path: "src/schemas/subscriptions/queryApp.graphql",
     },
     {
+        name: SubscribeQueryStore,
+        path: "src/schemas/subscriptions/queryStore.graphql",
+    },
+    {
         name: SubscribeQueryStatus,
         path: "src/schemas/subscriptions/queryStatus.graphql",
     },
@@ -210,15 +235,28 @@ generate_subscription_types! {
 // Re-export subscription modules
 pub mod subscriptions {
     pub use super::{
-        subscribe_accounts, subscribe_block, subscribe_event_by_addresses, subscribe_events,
-        subscribe_messages, subscribe_perps_candles, subscribe_perps_trades, subscribe_query_app,
-        subscribe_query_status, subscribe_transactions, subscribe_transfers,
+        subscribe_accounts, subscribe_block, subscribe_candles, subscribe_event_by_addresses,
+        subscribe_events, subscribe_messages, subscribe_perps_candles, subscribe_perps_trades,
+        subscribe_query_app, subscribe_query_status, subscribe_query_store, subscribe_trades,
+        subscribe_transactions, subscribe_transfers,
     };
 }
 
 // --------------------- Implement Default for enum types ----------------------
 
+impl Default for candles::CandleInterval {
+    fn default() -> Self {
+        Self::ONE_MINUTE
+    }
+}
+
 impl Default for perps_candles::CandleInterval {
+    fn default() -> Self {
+        Self::ONE_MINUTE
+    }
+}
+
+impl Default for subscribe_candles::CandleInterval {
     fn default() -> Self {
         Self::ONE_MINUTE
     }
